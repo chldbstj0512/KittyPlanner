@@ -4,10 +4,12 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DatabaseService } from './services/DatabaseService';
 import Dashboard from './components/Dashboard';
 import TransactionDetails from './components/TransactionDetails';
 import ErrorBoundary from './components/ErrorBoundary';
+import { colors } from './theme/colors';
 
 const Stack = createStackNavigator();
 
@@ -20,50 +22,73 @@ export default function App() {
 
   const initializeApp = async () => {
     try {
-      await DatabaseService.initDatabase();
+      console.log('Starting app initialization...');
+      
+      // For Android debugging: skip database initialization temporarily
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Development mode: skipping database for Android test');
+        setTimeout(() => {
+          console.log('Loading complete (dev mode)');
+          setIsLoading(false);
+        }, 2000);
+        return;
+      }
+      
+      // Add timeout to prevent infinite loading
+      const initPromise = DatabaseService.initDatabase();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Database initialization timeout')), 5000)
+      );
+      
+      await Promise.race([initPromise, timeoutPromise]);
+      console.log('Database initialized successfully');
       setIsLoading(false);
     } catch (error) {
       console.error('Error initializing app:', error);
+      console.log('Proceeding without database...');
       // Even if database initialization fails, we should still show the app
-      // The user can retry or use the app without database functionality
       setIsLoading(false);
     }
   };
 
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <Ionicons name="paw" size={64} color="#4CAF50" />
-        <Text style={styles.loadingText}>KittyPlanner</Text>
-        <Text style={styles.loadingSubtext}>Loading...</Text>
-      </View>
+      <SafeAreaProvider>
+        <View style={styles.loadingContainer}>
+          <Ionicons name="paw" size={64} color={colors.accent} />
+          <Text style={styles.loadingText}>KittyPlanner</Text>
+          <Text style={styles.loadingSubtext}>Loading...</Text>
+        </View>
+      </SafeAreaProvider>
     );
   }
 
   return (
-    <ErrorBoundary>
-      <NavigationContainer>
-        <StatusBar style="auto" />
-        
-        <Stack.Navigator>
-          <Stack.Screen 
-            name="Dashboard" 
-            component={Dashboard}
-            options={{ 
-              headerShown: false
-            }}
-          />
-          <Stack.Screen 
-            name="TransactionDetails" 
-            component={TransactionDetailsScreen}
-            options={{ 
-              headerShown: false,
-              presentation: 'modal'
-            }}
-          />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </ErrorBoundary>
+    <SafeAreaProvider>
+      <ErrorBoundary>
+        <NavigationContainer>
+          <StatusBar style="auto" />
+          
+          <Stack.Navigator>
+            <Stack.Screen 
+              name="Dashboard" 
+              component={Dashboard}
+              options={{ 
+                headerShown: false
+              }}
+            />
+            <Stack.Screen 
+              name="TransactionDetails" 
+              component={TransactionDetailsScreen}
+              options={{ 
+                headerShown: false,
+                presentation: 'modal'
+              }}
+            />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }
 
@@ -87,18 +112,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.bg,
   },
   loadingText: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#4CAF50',
+    color: colors.accent,
     marginTop: 10,
   },
   loadingSubtext: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textMuted,
     marginTop: 5,
   },
-
 });

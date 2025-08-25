@@ -60,7 +60,7 @@ export const CATEGORIES = {
   SHOPPING: {
     id: 'shopping',
     name: 'Shopping',
-    koreanName: '소비/장보기',
+    koreanName: '장보기',
     icon: 'bag',
     color: '#F8BBD9',
     iconType: 'Ionicons'

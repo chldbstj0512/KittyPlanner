@@ -10,20 +10,37 @@ function getDb() {
   return dbPromise;
 }
 
+// Helper function to get proper month date range
+function getMonthDateRange(year, month) {
+  const lastDay = new Date(year, month, 0).getDate(); // month is 1-12
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  return { start, end, lastDay };
+}
+
 export const DatabaseService = {
   initDatabase: async () => {
-    const db = await getDb();
-    await db.execAsync(`
-      PRAGMA journal_mode = wal;
-      CREATE TABLE IF NOT EXISTS transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        amount INTEGER NOT NULL,
-        type TEXT CHECK(type IN ('income','expense')) NOT NULL,
-        category TEXT NOT NULL,
-        memo TEXT
-      );
-    `);
+    try {
+      console.log('DatabaseService: Starting database initialization...');
+      const db = await getDb();
+      console.log('DatabaseService: Database connection established');
+      
+      await db.execAsync(`
+        PRAGMA journal_mode = wal;
+        CREATE TABLE IF NOT EXISTS transactions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          amount INTEGER NOT NULL,
+          type TEXT CHECK(type IN ('income','expense')) NOT NULL,
+          category TEXT NOT NULL,
+          memo TEXT
+        );
+      `);
+      console.log('DatabaseService: Tables created successfully');
+    } catch (error) {
+      console.error('DatabaseService: Error during initialization:', error);
+      throw error;
+    }
   },
 
   addTransaction: async (t) => {
@@ -37,11 +54,10 @@ export const DatabaseService = {
 
   getTransactionsByMonth: async (year, month) => {
     const db = await getDb();
-    const s = `${year}-${String(month).padStart(2, '0')}-01`;
-    const e = `${year}-${String(month).padStart(2, '0')}-31`;
+    const { start, end } = getMonthDateRange(year, month);
     const result = await db.getAllAsync(
       'SELECT * FROM transactions WHERE date BETWEEN ? AND ? ORDER BY date DESC',
-      [s, e]
+      [start, end]
     );
     return result || [];
   },
@@ -70,8 +86,7 @@ export const DatabaseService = {
 
   getMonthlySummary: async (year, month) => {
     const db = await getDb();
-    const s = `${year}-${String(month).padStart(2, '0')}-01`;
-    const e = `${year}-${String(month).padStart(2, '0')}-31`;
+    const { start, end } = getMonthDateRange(year, month);
     const rows = await db.getAllAsync(
       `SELECT 
          SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS totalIncome,
@@ -81,7 +96,7 @@ export const DatabaseService = {
        WHERE date BETWEEN ? AND ?
        GROUP BY category, type
        ORDER BY categoryTotal DESC`,
-      [s, e]
+      [start, end]
     );
     
     // Ensure we have valid data

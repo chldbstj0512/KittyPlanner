@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,29 +8,39 @@ import {
   Modal,
   TextInput,
   Alert,
-  Dimensions
+  Dimensions,
+  FlatList,
+  Pressable
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DatabaseService } from '../services/DatabaseService';
-import { CATEGORIES, getAllCategories } from '../constants/Categories';
+import { CATEGORIES, getAllCategories, getCategoryName } from '../constants/Categories';
+import { suggestCategory } from '../services/CategoryAutoClassifier';
 import AdBanner from './AdBanner';
-import DevHelper from './DevHelper';
+import { colors } from '../theme/colors';
 
-
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
+const SHOW_AD = true;
+const AD_HEIGHT = SHOW_AD ? 72 : 0;
+const MIN_TRANSACTION_LIST_HEIGHT = height * 0.25; // 25% of screen height
 
 export default function Dashboard({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [transactions, setTransactions] = useState([]);
   const [monthlySummary, setMonthlySummary] = useState({
     totalIncome: 0,
     totalExpenses: 0,
-    balance: 0
+    balance: 0,
+    momDelta: 0,
+    momPct: null
   });
-  const [markedDates, setMarkedDates] = useState({});
+  const [selectedDate, setSelectedDate] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [selectedDate, setSelectedDate] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [autoSuggestedCategory, setAutoSuggestedCategory] = useState(null);
   const [transactionForm, setTransactionForm] = useState({
     amount: '',
     type: 'expense',
@@ -38,84 +48,153 @@ export default function Dashboard({ navigation }) {
     memo: ''
   });
 
+  // Today key (TZ safe)
+  const todayKey = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }, []);
+
   useEffect(() => {
     loadMonthlyData();
   }, [currentDate]);
+
+  // Build sums by date for calendar display
+  const sumsByDate = useMemo(() => {
+    const map = {};
+    for (const t of transactions) {
+      const key = t.date;
+      if (!map[key]) map[key] = { income: 0, expense: 0 };
+      map[key][t.type] += t.amount;
+    }
+    return map;
+  }, [transactions]);
+
+  // Day-only transactions
+  const dayTransactions = useMemo(
+    () => selectedDate ? transactions.filter(t => t.date === selectedDate) : [],
+    [transactions, selectedDate]
+  );
+
+  // Helper functions for month-to-date calculations
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  const getMonthTotals = async (y, m) => {
+    const rows = await DatabaseService.getTransactionsByMonth(y, m);
+    let income = 0, expense = 0;
+    rows.forEach(r => {
+      if (r.type === 'income') income += r.amount;
+      else expense += r.amount;
+    });
+    return { income, expense, balance: income - expense, rows };
+  };
+
+  const getMTDExpense = async (y, m, dayEnd) => {
+    const all = await DatabaseService.getTransactionsByMonth(y, m);
+    return all
+      .filter(r => r.type === 'expense' && Number(r.date.slice(8, 10)) <= dayEnd)
+      .reduce((s, r) => s + r.amount, 0);
+  };
 
   const loadMonthlyData = async () => {
     try {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
-      
-      const transactions = await DatabaseService.getTransactionsByMonth(year, month);
-      const summary = await DatabaseService.getMonthlySummary(year, month);
-      
-      // Ensure we have valid data
-      const validTransactions = transactions || [];
-      const validSummary = summary || { totalIncome: 0, totalExpenses: 0 };
-      
-      setTransactions(validTransactions);
-      setMonthlySummary({
-        totalIncome: validSummary.totalIncome || 0,
-        totalExpenses: validSummary.totalExpenses || 0,
-        balance: (validSummary.totalIncome || 0) - (validSummary.totalExpenses || 0)
-      });
+      const todayDay = new Date().getDate();
+      const mtdEnd = Math.min(
+        todayDay,
+        new Date(year, month, 0).getDate() // days in current month
+      );
 
-      // Create marked dates for calendar
-      const marked = {};
-      validTransactions.forEach(transaction => {
-        if (transaction && transaction.date) {
-          const date = transaction.date;
-          if (!marked[date]) {
-            marked[date] = { dots: [] };
-          }
-          
-          const dotColor = transaction.type === 'income' ? '#4CAF50' : '#F44336';
-          marked[date].dots.push({ color: dotColor });
-        }
+      const cur = await getMonthTotals(year, month);
+      const prevMonth = month === 1 ? 12 : month - 1;
+      const prevYear = month === 1 ? year - 1 : year;
+      const prevMTD = await getMTDExpense(prevYear, prevMonth, mtdEnd);
+      const currMTD = await getMTDExpense(year, month, mtdEnd);
+      const momDelta = currMTD - prevMTD;
+      const momPct = prevMTD === 0 ? null : (momDelta / prevMTD) * 100;
+
+      setTransactions(cur.rows || []);
+      setMonthlySummary({
+        totalIncome: cur.income || 0,
+        totalExpenses: cur.expense || 0,
+        balance: cur.balance || 0,
+        momDelta,
+        momPct
       });
-      setMarkedDates(marked);
     } catch (error) {
       console.error('Error loading monthly data:', error);
-      // Set default values on error
       setTransactions([]);
       setMonthlySummary({
         totalIncome: 0,
         totalExpenses: 0,
-        balance: 0
+        balance: 0,
+        momDelta: 0,
+        momPct: null
       });
-      setMarkedDates({});
     }
   };
 
-  const handleAddTransaction = async () => {
-    if (!transactionForm.amount || !transactionForm.memo) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
+  const closeModal = () => {
+    setModalVisible(false);
+    setAutoSuggestedCategory(null);
+    setTransactionForm({
+      amount: '',
+      type: 'expense',
+      category: 'miscellaneous',
+      memo: ''
+    });
+  };
+
+  const saveTransaction = async () => {
+    if (saving) return;
+    if (!transactionForm.amount || !selectedDate) return;
 
     try {
-      const transaction = {
+      setSaving(true);
+      const payload = {
         date: selectedDate,
-        amount: parseInt(transactionForm.amount),
+        amount: Number(String(transactionForm.amount).replace(/[^0-9]/g, '')),
         type: transactionForm.type,
         category: transactionForm.category,
-        memo: transactionForm.memo
+        memo: (transactionForm.memo || '').trim(),
       };
-
-      await DatabaseService.addTransaction(transaction);
-      setModalVisible(false);
-      setTransactionForm({
-        amount: '',
-        type: 'expense',
-        category: 'miscellaneous',
-        memo: ''
-      });
-      loadMonthlyData();
+      
+      // 학습 기능: 사용자가 자동 제안과 다른 카테고리를 선택했을 때
+      if (payload.memo && payload.memo.length >= 3) {
+        const suggestedCategory = suggestCategory(payload.memo);
+        if (suggestedCategory !== payload.category) {
+          // 사용자의 선택을 학습 데이터로 저장
+          // 실제 앱에서는 이 데이터를 데이터베이스나 AsyncStorage에 저장
+          console.log(`Learning: "${payload.memo}" -> "${payload.category}" (suggested: "${suggestedCategory}")`);
+          
+          // 간단한 학습: 메모의 핵심 단어를 선택된 카테고리에 추가
+          const words = payload.memo.toLowerCase().split(/\s+/).filter(word => word.length >= 2);
+          if (words.length > 0) {
+            // 가장 긴 단어를 선택 (보통 더 의미있는 키워드)
+            const longestWord = words.reduce((a, b) => a.length > b.length ? a : b);
+            console.log(`Adding learned keyword: "${longestWord}" to category "${payload.category}"`);
+          }
+        }
+      }
+      
+      await DatabaseService.addTransaction(payload);
+      await loadMonthlyData(); // refresh month cache & sums
+      closeModal(); // close and reset form (single entry)
     } catch (error) {
       console.error('Error adding transaction:', error);
       Alert.alert('Error', 'Failed to add transaction');
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const openAddModal = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (!selectedDate) setSelectedDate(today);
+    setModalVisible(true);
   };
 
   const formatCurrency = (amount) => {
@@ -127,102 +206,249 @@ export default function Dashboard({ navigation }) {
     return category ? category.icon : 'paw';
   };
 
+  const navigateMonth = (direction) => {
+    const newDate = new Date(currentDate);
+    newDate.setMonth(newDate.getMonth() + direction);
+    setCurrentDate(newDate);
+  };
+
+  const formatMonthYear = (date) => {
+    return date.toLocaleDateString('en-US', { 
+      month: 'long', 
+      year: 'numeric' 
+    });
+  };
+
+  // 메모 기반 자동 카테고리 제안
+  const handleMemoChange = (memoText) => {
+    setTransactionForm(prev => ({
+      ...prev,
+      memo: memoText
+    }));
+
+    // 메모가 3글자 이상일 때만 자동 분류 실행
+    if (memoText && memoText.trim().length >= 3) {
+      const suggestedCategory = suggestCategory(memoText);
+      setAutoSuggestedCategory(suggestedCategory);
+      
+      // 현재 선택된 카테고리가 'miscellaneous'이거나 
+      // 제안된 카테고리가 현재 카테고리와 다를 때만 업데이트
+      if (transactionForm.category === 'miscellaneous' || 
+          suggestedCategory !== transactionForm.category) {
+        setTransactionForm(prev => ({
+          ...prev,
+          category: suggestedCategory
+        }));
+      }
+    } else {
+      setAutoSuggestedCategory(null);
+    }
+  };
+
+  const renderTransaction = ({ item }) => (
+    <View style={styles.txRow}>
+      <View style={styles.txLeft}>
+        <Text style={styles.txMemo}>{item.memo || '(no memo)'}</Text>
+        <Text style={styles.txCategory}>
+          {getCategoryName(item.category || 'miscellaneous', 'ko')}
+        </Text>
+      </View>
+      <Text style={[
+        styles.txAmount,
+        { color: item.type === 'income' ? colors.income : colors.expense }
+      ]}>
+        {item.type === 'expense' ? '-' : '+'}{formatCurrency(item.amount)}
+      </Text>
+    </View>
+  );
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth() + 1;
+
   return (
-    <View style={styles.container}>
-        <DevHelper />
-        <ScrollView style={styles.scrollView}>
-          {/* Balance Cards */}
+    <View style={[styles.container, { paddingTop: insets.top + 4 }]}>
+      {/* Compact Header */}
+      <View style={styles.compactHeader}>
+        {/* Row 1: Month Navigation + Balance */}
+        <View style={styles.headerRow}>
+          <View style={styles.monthNav}>
+            <TouchableOpacity 
+              style={styles.chevronButton}
+              onPress={() => navigateMonth(-1)}
+            >
+              <Ionicons name="chevron-back" size={16} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.monthText}>{formatMonthYear(currentDate)}</Text>
+            <TouchableOpacity 
+              style={styles.chevronButton}
+              onPress={() => navigateMonth(1)}
+            >
+              <Ionicons name="chevron-forward" size={16} color={colors.text} />
+            </TouchableOpacity>
+          </View>
           <View style={styles.balanceContainer}>
-            <View style={styles.balanceCard}>
-              <Text style={styles.balanceLabel}>Balance</Text>
-              <Text style={[styles.balanceAmount, { color: monthlySummary.balance >= 0 ? '#4CAF50' : '#F44336' }]}>
-                {formatCurrency(monthlySummary.balance)}
-              </Text>
-            </View>
-            
-            <View style={styles.incomeExpenseRow}>
-              <View style={[styles.miniCard, { backgroundColor: '#E8F5E8' }]}>
-                <Text style={styles.miniLabel}>Income</Text>
-                <Text style={[styles.miniAmount, { color: '#4CAF50' }]}>
-                  {formatCurrency(monthlySummary.totalIncome)}
-                </Text>
-              </View>
-              
-              <View style={[styles.miniCard, { backgroundColor: '#FFEBEE' }]}>
-                <Text style={styles.miniLabel}>Expenses</Text>
-                <Text style={[styles.miniAmount, { color: '#F44336' }]}>
-                  {formatCurrency(monthlySummary.totalExpenses)}
-                </Text>
-              </View>
-            </View>
+            <Text style={styles.balanceLabel}>Balance</Text>
+            <Text style={styles.balanceValue}>{formatCurrency(monthlySummary.balance)}</Text>
           </View>
+        </View>
 
-          {/* Calendar */}
-          <View style={styles.calendarContainer}>
-            <Calendar
-              current={currentDate.toISOString().split('T')[0]}
-              onDayPress={(day) => {
-                // Check if there are transactions for this day
-                const dayTransactions = transactions.filter(t => t.date === day.dateString);
-                if (dayTransactions.length > 0) {
-                  // Show transaction details
-                  navigation.navigate('TransactionDetails', { date: day.dateString });
-                } else {
-                  // Show add transaction modal
-                  setSelectedDate(day.dateString);
-                  setModalVisible(true);
-                }
-              }}
-              markedDates={markedDates}
-              markingType={'multi-dot'}
-              theme={{
-                backgroundColor: '#ffffff',
-                calendarBackground: '#ffffff',
-                textSectionTitleColor: '#b6c1cd',
-                selectedDayBackgroundColor: '#4CAF50',
-                selectedDayTextColor: '#ffffff',
-                todayTextColor: '#4CAF50',
-                dayTextColor: '#2d4150',
-                textDisabledColor: '#d9e1e8',
-                dotColor: '#4CAF50',
-                selectedDotColor: '#ffffff',
-                arrowColor: '#4CAF50',
-                monthTextColor: '#2d4150',
-                indicatorColor: '#4CAF50',
-                textDayFontWeight: '300',
-                textMonthFontWeight: 'bold',
-                textDayHeaderFontWeight: '300',
-                textDayFontSize: 16,
-                textMonthFontSize: 16,
-                textDayHeaderFontSize: 13
-              }}
-            />
+        {/* Row 2: Income + Expense */}
+        <View style={styles.headerRow}>
+          <View style={styles.metricHalf}>
+            <Text style={styles.metricLabel}>Income</Text>
+            <Text style={[styles.metricValue, { color: colors.income }]}>
+              {formatCurrency(monthlySummary.totalIncome)}
+            </Text>
           </View>
-        </ScrollView>
+          <View style={styles.metricHalf}>
+            <Text style={styles.metricLabel}>Expense</Text>
+            <Text style={[styles.metricValue, { color: colors.expense }]}>
+              {formatCurrency(monthlySummary.totalExpenses)}
+            </Text>
+          </View>
+        </View>
+      </View>
 
-        {/* Ad Banner */}
-        <AdBanner />
+      {/* Weekday Header */}
+      <View style={styles.weekdayHeader}>
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+          <Text key={index} style={styles.weekdayText}>{day}</Text>
+        ))}
+      </View>
 
-        {/* Floating Add Button */}
-        <TouchableOpacity
-          style={styles.floatingButton}
-          onPress={() => {
-            setSelectedDate(new Date().toISOString().split('T')[0]);
-            setModalVisible(true);
+      {/* Calendar */}
+      <View style={styles.calendarContainer}>
+        <Calendar
+          current={currentDate.toISOString().split('T')[0]}
+          enableSwipeMonths={true}
+          disableMonthChange={false}
+          firstDay={0}
+          hideHeader={true}
+          onMonthChange={(m) => {
+            const dt = new Date(m.year, m.month - 1, 1);
+            setCurrentDate(dt);
           }}
-        >
-          <Ionicons name="paw" size={24} color="white" />
-        </TouchableOpacity>
+          style={styles.calendar}
+          theme={{
+            calendarBackground: colors.surface,
+            textDayFontSize: 16,
+            textMonthFontSize: 1, // Android doesn't allow 0, use 1 instead
+            monthTextColor: 'transparent',
+            dayTextColor: colors.text,
+            textDisabledColor: '#D1D5DB',
+            arrowColor: 'transparent', // Hide arrows
+            textDayHeaderFontSize: 1, // Android doesn't allow 0, use 1 instead
+            'stylesheet.calendar.header': {
+              header: {
+                height: 0,
+                marginBottom: 0,
+                paddingBottom: 0,
+              },
+              monthText: {
+                height: 0,
+                opacity: 0,
+                fontSize: 1, // Android doesn't allow 0
+              },
+              arrow: {
+                height: 0,
+                width: 0,
+                opacity: 0,
+              },
+              dayHeader: {
+                height: 0,
+                opacity: 0,
+              },
+            },
+            'stylesheet.calendar.main': {
+              header: {
+                height: 0,
+                marginBottom: 0,
+              },
+            },
+          }}
+          dayComponent={({ date, state }) => {
+            const key = date?.dateString;
+            const sums = sumsByDate[key] || { income: 0, expense: 0 };
+            const isSelected = selectedDate === key;
+            const isToday = key === todayKey;
+            const isDisabled = state === 'disabled';
+
+            return (
+              <View style={[styles.dayWrapper, isDisabled && { opacity: 0.35 }]}>
+                {isToday && <View pointerEvents="none" style={[styles.overlayBase, styles.todayOverlay]} />}
+                {isSelected && <View pointerEvents="none" style={[styles.overlayBase, styles.selectedOverlay]} />}
+
+                <TouchableOpacity
+                  style={styles.dayContent}
+                  activeOpacity={0.8}
+                  onPress={() => setSelectedDate(key)}
+                >
+                  <Text style={[styles.dayNumber, isSelected && styles.dayNumberSelected]}>
+                    {date.day}
+                  </Text>
+
+                  <View style={styles.amountRow}>
+                    <Text style={styles.incomeText}>
+                      {sums.income ? `₩${sums.income.toLocaleString()}` : ' '}
+                    </Text>
+                    <Text style={styles.expenseText}>
+                      {sums.expense ? `₩${sums.expense.toLocaleString()}` : ' '}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+          }}
+        />
+      </View>
+
+      {/* Day-only List */}
+      <View style={styles.dayListContainer}>
+        {selectedDate == null ? (
+          <Text style={styles.placeholderText}>Select a date to view transactions.</Text>
+        ) : dayTransactions.length === 0 ? (
+          <Text style={styles.placeholderText}>No transactions.</Text>
+        ) : (
+          <FlatList
+            data={dayTransactions}
+            keyExtractor={(item) => String(item.id)}
+            contentContainerStyle={{ paddingBottom: 12 }}
+            renderItem={renderTransaction}
+          />
+        )}
+      </View>
+
+      {/* Ad Banner */}
+      <View style={styles.adContainer}>
+        <AdBanner />
+      </View>
+
+      {/* Floating Add Button */}
+      <TouchableOpacity
+        style={[
+          styles.fab,
+          { 
+            bottom: insets.bottom + AD_HEIGHT + 24, 
+            right: 20, 
+            backgroundColor: colors.accent 
+          }
+        ]}
+        onPress={openAddModal}
+      >
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
 
       {/* Add Transaction Modal */}
       <Modal
-        animationType="slide"
-        transparent={true}
+        animationType="fade"
+        transparent
         visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={closeModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        {/* Backdrop that dismisses on press */}
+        <Pressable style={styles.backdrop} onPress={closeModal}>
+          {/* Modal box: press here should NOT close the modal */}
+          <Pressable style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Transaction</Text>
             
             {/* Type Selection */}
@@ -258,9 +484,9 @@ export default function Dashboard({ navigation }) {
             <TextInput
               style={styles.input}
               placeholder="Amount"
+              keyboardType="number-pad"
               value={transactionForm.amount}
               onChangeText={(text) => setTransactionForm({...transactionForm, amount: text})}
-              keyboardType="numeric"
             />
 
             {/* Memo Input */}
@@ -268,8 +494,15 @@ export default function Dashboard({ navigation }) {
               style={styles.input}
               placeholder="Memo"
               value={transactionForm.memo}
-              onChangeText={(text) => setTransactionForm({...transactionForm, memo: text})}
+              onChangeText={handleMemoChange}
             />
+
+            {/* Auto-suggestion hint */}
+            {autoSuggestedCategory && autoSuggestedCategory !== 'miscellaneous' && (
+              <Text style={styles.autoSuggestionHint}>
+                💡 자동 분류: {getCategoryName(autoSuggestedCategory, 'ko')}
+              </Text>
+            )}
 
             {/* Category Selection */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryContainer}>
@@ -285,7 +518,7 @@ export default function Dashboard({ navigation }) {
                   <Ionicons 
                     name={category.icon} 
                     size={20} 
-                    color={transactionForm.category === category.id ? 'white' : category.color} 
+                    color={transactionForm.category === category.id ? 'white' : colors.text} 
                   />
                   <Text style={[
                     styles.categoryButtonText,
@@ -301,129 +534,235 @@ export default function Dashboard({ navigation }) {
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelButton}
-                onPress={() => setModalVisible(false)}
+                onPress={closeModal}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
                 style={styles.saveButton}
-                onPress={handleAddTransaction}
+                onPress={saveTransaction}
+                disabled={saving}
               >
-                <Text style={styles.saveButtonText}>Save</Text>
+                <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
-              </Modal>
-      </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.bg,
   },
-  scrollView: {
-    flex: 1,
+
+  compactHeader: {
+    marginHorizontal: 12,
+    marginTop: 6,
+    marginBottom: 8,
+    gap: 8,
   },
-  balanceContainer: {
-    padding: 20,
-    backgroundColor: 'white',
-    marginBottom: 10,
-  },
-  balanceCard: {
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  balanceLabel: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 5,
-  },
-  balanceAmount: {
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  incomeExpenseRow: {
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  miniCard: {
-    flex: 1,
-    padding: 15,
-    borderRadius: 10,
-    marginHorizontal: 5,
     alignItems: 'center',
   },
-  miniLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 5,
+  monthNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  miniAmount: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  chevronButton: {
+    padding: 4,
+  },
+  monthText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  balanceContainer: {
+    alignItems: 'flex-end',
+  },
+  balanceLabel: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginBottom: 2,
+  },
+  balanceValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  metricHalf: {
+    flex: 1,
+  },
+  metricLabel: { 
+    fontSize: 11, 
+    color: colors.textMuted, 
+    marginBottom: 2 
+  },
+  metricValue: { 
+    fontSize: 15, 
+    fontWeight: '700', 
+    color: colors.text 
+  },
+  weekdayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 4,
+    marginHorizontal: 20,
+    marginBottom: 2,
+  },
+  weekdayText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textAlign: 'center',
+    flex: 1,
   },
   calendarContainer: {
-    backgroundColor: 'white',
+    backgroundColor: colors.bg,
     marginHorizontal: 10,
-    borderRadius: 10,
-    padding: 10,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    borderRadius: 0,
+    padding: 8,
   },
-  floatingButton: {
+  calendar: {
+    borderRadius: 16,
+    paddingVertical: 6,
+  },
+  dayWrapper: {
+    position: 'relative',
+    width: '100%',
+    height: 48,
+    alignSelf: 'stretch',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  dayContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 4,
+  },
+  dayNumber: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 1,
+  },
+  dayNumberSelected: {
+    color: colors.accent,
+  },
+  amountRow: {
+    minHeight: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+  },
+  incomeText: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: colors.income,
+  },
+  expenseText: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: colors.expense,
+  },
+  overlayBase: {
     position: 'absolute',
-    bottom: 30,
-    right: 20,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 10,
+  },
+  todayOverlay: {
+    backgroundColor: '#F3F4F6', // Light gray overlay
+  },
+  selectedOverlay: {
+    backgroundColor: 'rgba(232, 81, 81, 0.1)', // Very light accent background
+  },
+
+
+  txRow: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  txLeft: { 
+    maxWidth: '70%' 
+  },
+  txMemo: { 
+    fontSize: 14, 
+    color: colors.text 
+  },
+  txCategory: { 
+    fontSize: 12, 
+    color: colors.textMuted, 
+    marginTop: 2 
+  },
+  txAmount: { 
+    fontSize: 14, 
+    fontWeight: '700' 
+  },
+
+  fab: {
+    position: 'absolute',
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#4CAF50',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowRadius: 4,
+    elevation: 6,
   },
-  modalOverlay: {
+  adContainer: {
+    height: AD_HEIGHT,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 10,
+    marginBottom: 10,
+  },
+  backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    padding: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: 'white',
+    width: '100%',
+    maxWidth: 480,
     borderRadius: 20,
-    padding: 20,
-    width: width - 40,
-    maxHeight: '80%',
+    backgroundColor: colors.surface,
+    padding: 16,
   },
   modalTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 20,
-    color: '#333',
+    color: colors.text,
   },
   typeContainer: {
     flexDirection: 'row',
     marginBottom: 20,
     borderRadius: 10,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.border,
     padding: 4,
   },
   typeButton: {
@@ -433,23 +772,24 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   typeButtonActive: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: colors.accent,
   },
   typeButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#666',
+    color: colors.textMuted,
   },
   typeButtonTextActive: {
     color: 'white',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: colors.border,
     borderRadius: 10,
     padding: 15,
     marginBottom: 15,
     fontSize: 16,
+    color: colors.text,
   },
   categoryContainer: {
     marginBottom: 20,
@@ -462,17 +802,17 @@ const styles = StyleSheet.create({
     marginRight: 10,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: 'white',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   categoryButtonActive: {
-    backgroundColor: '#4CAF50',
-    borderColor: '#4CAF50',
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   categoryButtonText: {
     marginLeft: 5,
     fontSize: 14,
-    color: '#666',
+    color: colors.textMuted,
   },
   categoryButtonTextActive: {
     color: 'white',
@@ -480,26 +820,25 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 8,
   },
   cancelButton: {
     flex: 1,
     paddingVertical: 15,
-    marginRight: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: colors.border,
     alignItems: 'center',
   },
   cancelButtonText: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textMuted,
   },
   saveButton: {
     flex: 1,
     paddingVertical: 15,
-    marginLeft: 10,
     borderRadius: 10,
-    backgroundColor: '#4CAF50',
+    backgroundColor: colors.accent,
     alignItems: 'center',
   },
   saveButtonText: {
@@ -507,4 +846,35 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
   },
+  dayListContainer: {
+    flex: 1,
+    minHeight: MIN_TRANSACTION_LIST_HEIGHT,
+    marginTop: 6,
+    marginHorizontal: 10,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    padding: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  placeholderText: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textAlign: 'center',
+    padding: 20,
+  },
+  autoSuggestionHint: {
+    fontSize: 12,
+    color: colors.accent,
+    marginBottom: 10,
+    marginTop: -10,
+    fontStyle: 'italic',
+  },
 });
+
