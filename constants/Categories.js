@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import i18n from '../i18n/i18n';
 
 export const CATEGORIES = {
   DINING: {
@@ -86,11 +87,27 @@ export const getCategoryIcon = (categoryId) => {
   };
 };
 
-export const getCategoryName = (categoryId, language = 'en') => {
+export const getCategoryName = (categoryId, language = null) => {
   const category = CATEGORIES[categoryId.toUpperCase()];
-  if (!category) return CATEGORIES.MISCELLANEOUS.name;
+  if (!category) {
+    return i18n.t('categories.miscellaneous');
+  }
   
-  return language === 'ko' ? category.koreanName : category.name;
+  // 음식/식사 카테고리 매핑
+  const categoryKeyMap = {
+    'DINING': 'food',
+    'ESSENTIALS': 'shopping',
+    'ENTERTAINMENT': 'entertainment',
+    'HOBBIES': 'entertainment',
+    'TRANSPORT': 'transport',
+    'TRAVEL': 'travel',
+    'FAMILY': 'gift',
+    'SHOPPING': 'shopping',
+    'MISCELLANEOUS': 'miscellaneous'
+  };
+  
+  const translationKey = categoryKeyMap[categoryId.toUpperCase()] || 'miscellaneous';
+  return i18n.t(`categories.${translationKey}`);
 };
 
 export const getCategoryColor = (categoryId) => {

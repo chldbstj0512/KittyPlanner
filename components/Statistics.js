@@ -10,20 +10,29 @@ import {
 import { PieChart } from 'react-native-chart-kit';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import { useTranslation } from 'react-i18next';
 import { DatabaseService } from '../services/DatabaseService';
 import { CATEGORIES, getCategoryName, getCategoryColor } from '../constants/Categories';
 import AdBanner from './AdBanner';
 
 const { width } = Dimensions.get('window');
 
-export default function Statistics() {
+export default function Statistics({ navigation }) {
+  const { t } = useTranslation();
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [monthlyData, setMonthlyData] = useState({
     totalIncome: 0,
     totalExpenses: 0,
     categories: []
   });
+  const [previousMonthData, setPreviousMonthData] = useState({
+    totalIncome: 0,
+    totalExpenses: 0
+  });
   const [chartData, setChartData] = useState([]);
+  const [categoryChartData, setCategoryChartData] = useState([]);
+  const [currentView, setCurrentView] = useState('overview'); // 'overview' or 'categories'
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   useEffect(() => {
     loadMonthlyStatistics();
@@ -34,11 +43,20 @@ export default function Statistics() {
       const year = selectedMonth.getFullYear();
       const month = selectedMonth.getMonth() + 1;
       
+      // Get current month data
       const summary = await DatabaseService.getMonthlySummary(year, month);
+      
+      // Get previous month data for comparison
+      const prevDate = new Date(selectedMonth);
+      prevDate.setMonth(prevDate.getMonth() - 1);
+      const prevYear = prevDate.getFullYear();
+      const prevMonth = prevDate.getMonth() + 1;
+      const prevSummary = await DatabaseService.getMonthlySummary(prevYear, prevMonth);
       
       // Ensure we have valid data
       const validSummary = summary || { totalIncome: 0, totalExpenses: 0, categories: [] };
       const validCategories = validSummary.categories || [];
+      const validPrevSummary = prevSummary || { totalIncome: 0, totalExpenses: 0 };
       
       setMonthlyData({
         totalIncome: validSummary.totalIncome || 0,
@@ -46,16 +64,63 @@ export default function Statistics() {
         categories: validCategories
       });
 
-      // Prepare chart data
-      const chartData = validCategories.map((category, index) => ({
-        name: getCategoryName(category.category || 'miscellaneous', 'ko'),
-        amount: category.categoryTotal || 0,
-        color: getCategoryColor(category.category || 'miscellaneous'),
-        legendFontColor: '#7F7F7F',
-        legendFontSize: 12,
-      }));
+      setPreviousMonthData({
+        totalIncome: validPrevSummary.totalIncome || 0,
+        totalExpenses: validPrevSummary.totalExpenses || 0
+      });
 
-      setChartData(chartData);
+      // Prepare overview chart data (Income vs Expense vs Balance)
+      const safeIncome = Number(validSummary.totalIncome) || 0;
+      const safeExpenses = Number(validSummary.totalExpenses) || 0;
+      const balance = safeIncome - safeExpenses;
+      
+      const overviewData = [];
+      
+      if (safeIncome > 0) {
+        overviewData.push({
+          name: t('dashboard.income'),
+          amount: safeIncome,
+          color: '#1E90FF',
+          legendFontColor: '#433B2D',
+          legendFontSize: 12,
+        });
+      }
+      
+      if (safeExpenses > 0) {
+        overviewData.push({
+          name: t('dashboard.expense'),
+          amount: safeExpenses,
+          color: '#EF4444',
+          legendFontColor: '#433B2D',
+          legendFontSize: 12,
+        });
+      }
+
+      // Only add balance if it's positive
+      if (balance > 0) {
+        overviewData.push({
+          name: t('dashboard.balance'),
+          amount: balance,
+          color: '#22C55E',
+          legendFontColor: '#433B2D',
+          legendFontSize: 12,
+        });
+      }
+
+      setChartData(overviewData);
+
+      // Prepare category chart data
+      const categoryData = validCategories
+        .filter(category => category && (Number(category.categoryTotal) || 0) > 0)
+        .map((category, index) => ({
+          name: getCategoryName(category.category || 'miscellaneous'),
+          amount: Number(category.categoryTotal) || 0,
+          color: getCategoryColor(category.category || 'miscellaneous'),
+          legendFontColor: '#433B2D',
+          legendFontSize: 12,
+        }));
+
+      setCategoryChartData(categoryData);
     } catch (error) {
       console.error('Error loading statistics:', error);
       // Set default values on error
@@ -64,17 +129,41 @@ export default function Statistics() {
         totalExpenses: 0,
         categories: []
       });
+      setPreviousMonthData({
+        totalIncome: 0,
+        totalExpenses: 0
+      });
       setChartData([]);
+      setCategoryChartData([]);
     }
   };
 
   const formatCurrency = (amount) => {
-    return `₩${amount.toLocaleString()}`;
+    if (amount === undefined || amount === null || isNaN(amount)) {
+      return '₩0';
+    }
+    return `₩${Number(amount).toLocaleString()}`;
   };
 
   const formatPercentage = (amount, total) => {
     if (total === 0) return '0%';
     return `${((amount / total) * 100).toFixed(1)}%`;
+  };
+
+  const calculateMonthComparison = (current, previous) => {
+    const safeCurrent = Number(current) || 0;
+    const safePrevious = Number(previous) || 0;
+    
+    if (safePrevious === 0) {
+      return safeCurrent > 0 ? { percentage: 100, isIncrease: true, amount: safeCurrent } : { percentage: 0, isIncrease: false, amount: 0 };
+    }
+    const difference = safeCurrent - safePrevious;
+    const percentage = Math.abs((difference / safePrevious) * 100);
+    return {
+      percentage: percentage.toFixed(1),
+      isIncrease: difference > 0,
+      amount: Math.abs(difference)
+    };
   };
 
   const getMonthOptions = () => {
@@ -105,53 +194,104 @@ export default function Statistics() {
     <ScrollView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Statistics</Text>
-        <Text style={styles.headerSubtitle}>지출 분석</Text>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="arrow-back" size={24} color="#433B2D" />
+        </TouchableOpacity>
       </View>
 
       {/* Month Selector */}
       <View style={styles.monthSelector}>
-        <Text style={styles.monthLabel}>Select Month</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={selectedMonth}
-            onValueChange={(itemValue) => setSelectedMonth(itemValue)}
-            style={styles.picker}
-          >
-            {getMonthOptions().map((option) => (
-              <Picker.Item
+        <TouchableOpacity 
+          style={styles.monthPickerButton}
+          onPress={() => setShowMonthPicker(!showMonthPicker)}
+        >
+          <Text style={styles.currentMonthText}>
+            {`${selectedMonth.getFullYear()}년 ${selectedMonth.getMonth() + 1}월`}
+          </Text>
+          <Ionicons 
+            name={showMonthPicker ? "chevron-up" : "chevron-down"} 
+            size={20} 
+            color="#433B2D" 
+          />
+        </TouchableOpacity>
+        
+        {showMonthPicker && (
+          <View style={styles.monthDropdown}>
+            {getMonthOptions().map((option, index) => (
+              <TouchableOpacity
                 key={option.value.toISOString()}
-                label={option.label}
-                value={option.value}
-              />
+                style={[
+                  styles.monthOption,
+                  selectedMonth.getTime() === option.value.getTime() && styles.monthOptionSelected
+                ]}
+                onPress={() => {
+                  setSelectedMonth(option.value);
+                  setShowMonthPicker(false);
+                }}
+              >
+                <Text style={[
+                  styles.monthOptionText,
+                  selectedMonth.getTime() === option.value.getTime() && styles.monthOptionTextSelected
+                ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
             ))}
-          </Picker>
-        </View>
+          </View>
+        )}
       </View>
 
-      {/* Summary Cards */}
-      <View style={styles.summaryContainer}>
-        <View style={[styles.summaryCard, { backgroundColor: '#E8F5E8' }]}>
-          <Text style={styles.summaryLabel}>Total Income</Text>
-          <Text style={[styles.summaryAmount, { color: '#4CAF50' }]}>
-            {formatCurrency(monthlyData.totalIncome)}
+      {/* Chart View Toggle */}
+      <View style={styles.toggleContainer}>
+        <TouchableOpacity 
+          style={[styles.toggleButton, currentView === 'overview' && styles.toggleButtonActive]}
+          onPress={() => setCurrentView('overview')}
+        >
+          <Text style={[styles.toggleText, currentView === 'overview' && styles.toggleTextActive]}>
+            수입·지출·잔액
           </Text>
-        </View>
-        
-        <View style={[styles.summaryCard, { backgroundColor: '#FFEBEE' }]}>
-          <Text style={styles.summaryLabel}>Total Expenses</Text>
-          <Text style={[styles.summaryAmount, { color: '#F44336' }]}>
-            {formatCurrency(monthlyData.totalExpenses)}
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.toggleButton, currentView === 'categories' && styles.toggleButtonActive]}
+          onPress={() => setCurrentView('categories')}
+        >
+          <Text style={[styles.toggleText, currentView === 'categories' && styles.toggleTextActive]}>
+            카테고리별 지출
           </Text>
-        </View>
+        </TouchableOpacity>
       </View>
+
+      {/* Month Comparison */}
+      {(() => {
+        const expenseComparison = calculateMonthComparison(monthlyData.totalExpenses, previousMonthData.totalExpenses);
+        return (
+          <View style={styles.comparisonContainer}>
+            <Text style={styles.comparisonTitle}>전월 대비</Text>
+            <View style={styles.comparisonRow}>
+              <Ionicons 
+                name={expenseComparison.isIncrease ? "trending-up" : "trending-down"} 
+                size={20} 
+                color={expenseComparison.isIncrease ? "#EF4444" : "#22C55E"} 
+              />
+              <Text style={[styles.comparisonText, { color: expenseComparison.isIncrease ? "#EF4444" : "#22C55E" }]}>
+                {expenseComparison.isIncrease ? '더 많이' : '더 적게'} 소비: {formatCurrency(expenseComparison.amount)} ({expenseComparison.percentage}%)
+              </Text>
+            </View>
+          </View>
+        );
+      })()}
 
       {/* Pie Chart */}
-      {chartData.length > 0 ? (
+      {(currentView === 'overview' ? chartData : categoryChartData).length > 0 ? (
         <View style={styles.chartContainer}>
-          <Text style={styles.chartTitle}>Expense Breakdown</Text>
+          <Text style={styles.chartTitle}>
+            {currentView === 'overview' ? '수입·지출·잔액 비율' : '카테고리별 지출 분석'}
+          </Text>
           <PieChart
-            data={chartData}
+            data={currentView === 'overview' ? chartData : categoryChartData}
             width={width - 40}
             height={220}
             chartConfig={chartConfig}
@@ -164,41 +304,44 @@ export default function Statistics() {
       ) : (
         <View style={styles.emptyChart}>
           <Ionicons name="pie-chart-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyText}>No data for this month</Text>
+          <Text style={styles.emptyText}>{t('statistics.noData')}</Text>
         </View>
       )}
 
       {/* Category Details */}
       <View style={styles.categoryDetails}>
-        <Text style={styles.categoryTitle}>Category Details</Text>
-        {monthlyData.categories.map((category, index) => {
-          if (!category) return null;
-          
-          return (
-            <View key={index} style={styles.categoryItem}>
-              <View style={styles.categoryInfo}>
-                <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(category.category || 'miscellaneous') }]}>
-                  <Ionicons 
-                    name={CATEGORIES[(category.category || 'miscellaneous').toUpperCase()]?.icon || 'paw'} 
-                    size={16} 
-                    color="white" 
-                  />
+        <Text style={styles.categoryTitle}>{t('statistics.categoryDetails')}</Text>
+        {monthlyData.categories
+          .filter(category => category && (Number(category.categoryTotal) || 0) > 0)
+          .map((category, index) => {
+            const categoryTotal = Number(category.categoryTotal) || 0;
+            const totalExpenses = Number(monthlyData.totalExpenses) || 0;
+            
+            return (
+              <View key={index} style={styles.categoryItem}>
+                <View style={styles.categoryInfo}>
+                  <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(category.category || 'miscellaneous') }]}>
+                    <Ionicons 
+                      name={CATEGORIES[(category.category || 'miscellaneous').toUpperCase()]?.icon || 'paw'} 
+                      size={16} 
+                      color="white" 
+                    />
+                  </View>
+                  <View style={styles.categoryText}>
+                    <Text style={styles.categoryName}>
+                      {getCategoryName(category.category || 'miscellaneous')}
+                    </Text>
+                    <Text style={styles.categoryAmount}>
+                      {formatCurrency(categoryTotal)}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.categoryText}>
-                  <Text style={styles.categoryName}>
-                    {getCategoryName(category.category || 'miscellaneous', 'ko')}
-                  </Text>
-                  <Text style={styles.categoryAmount}>
-                    {formatCurrency(category.categoryTotal || 0)}
-                  </Text>
-                </View>
+                <Text style={styles.categoryPercentage}>
+                  {formatPercentage(categoryTotal, totalExpenses)}
+                </Text>
               </View>
-              <Text style={styles.categoryPercentage}>
-                {formatPercentage(category.categoryTotal || 0, monthlyData.totalExpenses)}
-              </Text>
-            </View>
-          );
-        })}
+            );
+          })}
       </View>
 
       {/* Ad Banner */}
@@ -210,42 +353,130 @@ export default function Statistics() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: 'white',
   },
   header: {
-    padding: 20,
-    backgroundColor: 'white',
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 5,
-  },
-  monthSelector: {
     padding: 20,
+    paddingTop: 50,
     backgroundColor: 'white',
-    marginTop: 10,
   },
-  monthLabel: {
+  backButton: {
+    padding: 8,
+  },
+
+  monthSelector: {
+    paddingHorizontal: 20,
+    paddingVertical: 2,
+    backgroundColor: 'white',
+    marginTop: 0,
+  },
+  monthPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+    position: 'relative',
+  },
+  currentMonthText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 10,
+    color: '#433B2D',
+    marginRight: 8,
   },
-  pickerContainer: {
+  monthDropdown: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 10,
-    backgroundColor: '#f9f9f9',
+    maxHeight: 200,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  picker: {
-    height: 50,
+  monthOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  monthOptionSelected: {
+    backgroundColor: '#FFF5C8',
+  },
+  monthOptionText: {
+    fontSize: 16,
+    color: '#433B2D',
+  },
+  monthOptionTextSelected: {
+    fontWeight: '600',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    margin: 20,
+    borderRadius: 10,
+    padding: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleButtonActive: {
+    backgroundColor: '#FFF5C8',
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
+  },
+  toggleTextActive: {
+    color: '#433B2D',
+    fontWeight: '600',
+  },
+  comparisonContainer: {
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    marginBottom: 10,
+    borderRadius: 10,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  comparisonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#433B2D',
+    marginBottom: 8,
+  },
+  comparisonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  comparisonText: {
+    fontSize: 14,
+    marginLeft: 8,
+    fontWeight: '500',
   },
   summaryContainer: {
     flexDirection: 'row',

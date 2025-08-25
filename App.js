@@ -5,16 +5,20 @@ import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { DatabaseService } from './services/DatabaseService';
 import Dashboard from './components/Dashboard';
 import TransactionDetails from './components/TransactionDetails';
+import Statistics from './components/Statistics';
 import ErrorBoundary from './components/ErrorBoundary';
 import { colors } from './theme/colors';
+import './i18n/i18n'; // i18n 초기화
 
 const Stack = createStackNavigator();
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
+  const { t } = useTranslation();
 
   useEffect(() => {
     initializeApp();
@@ -56,8 +60,8 @@ export default function App() {
       <SafeAreaProvider>
         <View style={styles.loadingContainer}>
           <Ionicons name="paw" size={64} color={colors.accent} />
-          <Text style={styles.loadingText}>KittyPlanner</Text>
-          <Text style={styles.loadingSubtext}>Loading...</Text>
+          <Text style={styles.loadingText}>{t('app.name')}</Text>
+          <Text style={styles.loadingSubtext}>{t('app.loading')}</Text>
         </View>
       </SafeAreaProvider>
     );
@@ -83,6 +87,13 @@ export default function App() {
               options={{ 
                 headerShown: false,
                 presentation: 'modal'
+              }}
+            />
+            <Stack.Screen 
+              name="Statistics" 
+              component={Statistics}
+              options={{ 
+                headerShown: false
               }}
             />
           </Stack.Navigator>

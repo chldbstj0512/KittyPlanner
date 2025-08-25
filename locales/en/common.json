@@ -1,0 +1,91 @@
+{
+  "app": {
+    "name": "KittyPlanner",
+    "loading": "Loading...",
+    "error": "Error",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving...",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "close": "Close",
+    "ok": "OK"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "balance": "Balance",
+    "income": "Income",
+    "expense": "Expense",
+    "addTransaction": "Add Transaction",
+    "selectDate": "Select a date to view transactions",
+    "noTransactions": "No transactions",
+    "autoSuggestion": "💡 Auto classified: {{category}}"
+  },
+  "transaction": {
+    "add": "Add Transaction",
+    "amount": "Amount",
+    "memo": "Item",
+    "category": "Category",
+    "type": {
+      "income": "Income",
+      "expense": "Expense"
+    },
+    "noMemo": "(no item)"
+  },
+  "statistics": {
+    "title": "Statistics",
+    "subtitle": "Expense Analysis",
+    "selectMonth": "Select Month",
+    "totalIncome": "Total Income",
+    "totalExpenses": "Total Expenses",
+    "expenseBreakdown": "Expense Breakdown",
+    "categoryDetails": "Category Details",
+    "noData": "No data for this month"
+  },
+  "categories": {
+    "food": "Food",
+    "transport": "Transport",
+    "shopping": "Shopping",
+    "entertainment": "Entertainment",
+    "bills": "Bills",
+    "health": "Health",
+    "education": "Education",
+    "travel": "Travel",
+    "miscellaneous": "Miscellaneous",
+    "salary": "Salary",
+    "business": "Business",
+    "investment": "Investment",
+    "gift": "Gift"
+  },
+  "months": {
+    "1": "January",
+    "2": "February",
+    "3": "March",
+    "4": "April",
+    "5": "May",
+    "6": "June",
+    "7": "July",
+    "8": "August",
+    "9": "September",
+    "10": "October",
+    "11": "November",
+    "12": "December"
+  },
+  "weekdays": {
+    "short": {
+      "sun": "Sun",
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri",
+      "sat": "Sat"
+    }
+  },
+  "errors": {
+    "database": "Database initialization error",
+    "addTransaction": "Failed to add transaction",
+    "loadData": "Failed to load data"
+  }
+}

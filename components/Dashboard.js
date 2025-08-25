@@ -15,6 +15,7 @@ import {
 import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { DatabaseService } from '../services/DatabaseService';
 import { CATEGORIES, getAllCategories, getCategoryName } from '../constants/Categories';
 import { suggestCategory } from '../services/CategoryAutoClassifier';
@@ -28,6 +29,7 @@ const MIN_TRANSACTION_LIST_HEIGHT = height * 0.25; // 25% of screen height
 
 export default function Dashboard({ navigation }) {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [transactions, setTransactions] = useState([]);
   const [monthlySummary, setMonthlySummary] = useState({
@@ -40,7 +42,6 @@ export default function Dashboard({ navigation }) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [autoSuggestedCategory, setAutoSuggestedCategory] = useState(null);
   const [transactionForm, setTransactionForm] = useState({
     amount: '',
     type: 'expense',
@@ -139,7 +140,6 @@ export default function Dashboard({ navigation }) {
 
   const closeModal = () => {
     setModalVisible(false);
-    setAutoSuggestedCategory(null);
     setTransactionForm({
       amount: '',
       type: 'expense',
@@ -156,7 +156,7 @@ export default function Dashboard({ navigation }) {
       setSaving(true);
       const payload = {
         date: selectedDate,
-        amount: Number(String(transactionForm.amount).replace(/[^0-9]/g, '')),
+        amount: Number(removeCommas(transactionForm.amount)),
         type: transactionForm.type,
         category: transactionForm.category,
         memo: (transactionForm.memo || '').trim(),
@@ -201,6 +201,24 @@ export default function Dashboard({ navigation }) {
     return `₩${amount.toLocaleString()}`;
   };
 
+  const formatCurrencyWithSign = (amount, type) => {
+    const sign = type === 'income' ? '+' : '-';
+    return `${sign}${amount.toLocaleString()}`;
+  };
+
+  // 숫자 입력시 콤마 포맷팅 함수
+  const formatNumberWithCommas = (text) => {
+    // 숫자가 아닌 문자 제거
+    const numericText = text.replace(/[^0-9]/g, '');
+    // 콤마 추가
+    return numericText.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  };
+
+  // 콤마 제거하고 순수 숫자만 반환
+  const removeCommas = (text) => {
+    return text.replace(/,/g, '');
+  };
+
   const getCategoryIcon = (categoryId) => {
     const category = CATEGORIES[categoryId.toUpperCase()];
     return category ? category.icon : 'paw';
@@ -213,51 +231,41 @@ export default function Dashboard({ navigation }) {
   };
 
   const formatMonthYear = (date) => {
-    return date.toLocaleDateString('en-US', { 
-      month: 'long', 
-      year: 'numeric' 
-    });
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    return `${year}년 ${t(`months.${month}`)}`;
   };
 
-  // 메모 기반 자동 카테고리 제안
+  // 항목 기반 자동 카테고리 분류
   const handleMemoChange = (memoText) => {
     setTransactionForm(prev => ({
       ...prev,
       memo: memoText
     }));
 
-    // 메모가 3글자 이상일 때만 자동 분류 실행
+    // 항목이 3글자 이상일 때만 자동 분류 실행
     if (memoText && memoText.trim().length >= 3) {
       const suggestedCategory = suggestCategory(memoText);
-      setAutoSuggestedCategory(suggestedCategory);
-      
-      // 현재 선택된 카테고리가 'miscellaneous'이거나 
-      // 제안된 카테고리가 현재 카테고리와 다를 때만 업데이트
-      if (transactionForm.category === 'miscellaneous' || 
-          suggestedCategory !== transactionForm.category) {
-        setTransactionForm(prev => ({
-          ...prev,
-          category: suggestedCategory
-        }));
-      }
-    } else {
-      setAutoSuggestedCategory(null);
+      setTransactionForm(prev => ({
+        ...prev,
+        category: suggestedCategory
+      }));
     }
   };
 
   const renderTransaction = ({ item }) => (
     <View style={styles.txRow}>
       <View style={styles.txLeft}>
-        <Text style={styles.txMemo}>{item.memo || '(no memo)'}</Text>
+        <Text style={styles.txMemo}>{item.memo || t('transaction.noMemo')}</Text>
         <Text style={styles.txCategory}>
-          {getCategoryName(item.category || 'miscellaneous', 'ko')}
+          {getCategoryName(item.category || 'miscellaneous')}
         </Text>
       </View>
       <Text style={[
         styles.txAmount,
         { color: item.type === 'income' ? colors.income : colors.expense }
       ]}>
-        {item.type === 'expense' ? '-' : '+'}{formatCurrency(item.amount)}
+        {formatCurrencyWithSign(item.amount, item.type)}
       </Text>
     </View>
   );
@@ -266,44 +274,46 @@ export default function Dashboard({ navigation }) {
   const month = currentDate.getMonth() + 1;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 4 }]}>
-      {/* Compact Header */}
-      <View style={styles.compactHeader}>
-        {/* Row 1: Month Navigation + Balance */}
-        <View style={styles.headerRow}>
-          <View style={styles.monthNav}>
-            <TouchableOpacity 
-              style={styles.chevronButton}
-              onPress={() => navigateMonth(-1)}
-            >
-              <Ionicons name="chevron-back" size={16} color={colors.text} />
-            </TouchableOpacity>
-            <Text style={styles.monthText}>{formatMonthYear(currentDate)}</Text>
-            <TouchableOpacity 
-              style={styles.chevronButton}
-              onPress={() => navigateMonth(1)}
-            >
-              <Ionicons name="chevron-forward" size={16} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.balanceContainer}>
-            <Text style={styles.balanceLabel}>Balance</Text>
-            <Text style={styles.balanceValue}>{formatCurrency(monthlySummary.balance)}</Text>
-          </View>
+    <View style={styles.container}>
+      {/* Yellow Background for Top Area */}
+      <View style={[styles.topBackground, { paddingTop: insets.top + 2 }]}>
+        {/* Month Header */}
+        <View style={styles.monthHeader}>
+          <Text style={styles.monthText}>{formatMonthYear(currentDate)}</Text>
+          <TouchableOpacity 
+            style={styles.statsButton}
+            onPress={() => navigation.navigate('Statistics')}
+          >
+            <Ionicons name="pie-chart-outline" size={20} color={colors.text} />
+          </TouchableOpacity>
         </View>
+      </View>
 
-        {/* Row 2: Income + Expense */}
-        <View style={styles.headerRow}>
-          <View style={styles.metricHalf}>
-            <Text style={styles.metricLabel}>Income</Text>
-            <Text style={[styles.metricValue, { color: colors.income }]}>
-              {formatCurrency(monthlySummary.totalIncome)}
+      {/* Metrics Row - Between Month and Weekdays */}
+      <View style={styles.metricsContainer}>
+        <View style={styles.metricsRow}>
+          <View style={styles.metricThird}>
+            <Text style={styles.horizontalMetric}>
+              <Text style={styles.metricLabel}>{t('dashboard.income')}   </Text>
+              <Text style={[styles.metricValue, { color: colors.income }]}>
+                {monthlySummary.totalIncome.toLocaleString()}원
+              </Text>
             </Text>
           </View>
-          <View style={styles.metricHalf}>
-            <Text style={styles.metricLabel}>Expense</Text>
-            <Text style={[styles.metricValue, { color: colors.expense }]}>
-              {formatCurrency(monthlySummary.totalExpenses)}
+          <View style={styles.metricThird}>
+            <Text style={styles.horizontalMetric}>
+              <Text style={styles.metricLabel}>{t('dashboard.expense')}   </Text>
+              <Text style={[styles.metricValue, { color: colors.expense }]}>
+                {monthlySummary.totalExpenses.toLocaleString()}원
+              </Text>
+            </Text>
+          </View>
+          <View style={styles.metricThird}>
+            <Text style={styles.horizontalMetric}>
+              <Text style={styles.metricLabel}>{t('dashboard.balance')}   </Text>
+              <Text style={[styles.metricValue, { color: colors.text }]}>
+                {Math.abs(monthlySummary.balance).toLocaleString()}원
+              </Text>
             </Text>
           </View>
         </View>
@@ -311,7 +321,7 @@ export default function Dashboard({ navigation }) {
 
       {/* Weekday Header */}
       <View style={styles.weekdayHeader}>
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+        {[t('weekdays.short.sun'), t('weekdays.short.mon'), t('weekdays.short.tue'), t('weekdays.short.wed'), t('weekdays.short.thu'), t('weekdays.short.fri'), t('weekdays.short.sat')].map((day, index) => (
           <Text key={index} style={styles.weekdayText}>{day}</Text>
         ))}
       </View>
@@ -364,6 +374,13 @@ export default function Dashboard({ navigation }) {
                 height: 0,
                 marginBottom: 0,
               },
+              week: {
+                marginTop: -4,
+                marginBottom: 0,
+                paddingTop: 0,
+                paddingBottom: 0,
+                flexDirection: 'row',
+              },
             },
           }}
           dayComponent={({ date, state }) => {
@@ -389,10 +406,10 @@ export default function Dashboard({ navigation }) {
 
                   <View style={styles.amountRow}>
                     <Text style={styles.incomeText}>
-                      {sums.income ? `₩${sums.income.toLocaleString()}` : ' '}
+                      {sums.income ? `+${sums.income.toLocaleString()}` : ' '}
                     </Text>
                     <Text style={styles.expenseText}>
-                      {sums.expense ? `₩${sums.expense.toLocaleString()}` : ' '}
+                      {sums.expense ? `-${sums.expense.toLocaleString()}` : ' '}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -405,9 +422,9 @@ export default function Dashboard({ navigation }) {
       {/* Day-only List */}
       <View style={styles.dayListContainer}>
         {selectedDate == null ? (
-          <Text style={styles.placeholderText}>Select a date to view transactions.</Text>
+          <Text style={styles.placeholderText}>{t('dashboard.selectDate')}</Text>
         ) : dayTransactions.length === 0 ? (
-          <Text style={styles.placeholderText}>No transactions.</Text>
+          <Text style={styles.placeholderText}>{t('dashboard.noTransactions')}</Text>
         ) : (
           <FlatList
             data={dayTransactions}
@@ -430,12 +447,18 @@ export default function Dashboard({ navigation }) {
           { 
             bottom: insets.bottom + AD_HEIGHT + 24, 
             right: 20, 
-            backgroundColor: colors.accent 
+            backgroundColor: '#FFF5C8',
+            shadowOffset: {
+              width: 2,
+              height: 3,
+            },
+            shadowOpacity: 0.15,
+            shadowRadius: 4,
           }
         ]}
         onPress={openAddModal}
       >
-        <Ionicons name="add" size={28} color="#fff" />
+        <Ionicons name="add" size={32} color="#735D2F" style={{fontWeight: '700'}} />
       </TouchableOpacity>
 
       {/* Add Transaction Modal */}
@@ -449,7 +472,7 @@ export default function Dashboard({ navigation }) {
         <Pressable style={styles.backdrop} onPress={closeModal}>
           {/* Modal box: press here should NOT close the modal */}
           <Pressable style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Add Transaction</Text>
+            <Text style={styles.modalTitle}>{t('transaction.add')}</Text>
             
             {/* Type Selection */}
             <View style={styles.typeContainer}>
@@ -463,7 +486,7 @@ export default function Dashboard({ navigation }) {
                 <Text style={[
                   styles.typeButtonText,
                   transactionForm.type === 'income' && styles.typeButtonTextActive
-                ]}>Income</Text>
+                ]}>{t('transaction.type.income')}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
@@ -476,59 +499,29 @@ export default function Dashboard({ navigation }) {
                 <Text style={[
                   styles.typeButtonText,
                   transactionForm.type === 'expense' && styles.typeButtonTextActive
-                ]}>Expense</Text>
+                ]}>{t('transaction.type.expense')}</Text>
               </TouchableOpacity>
             </View>
 
             {/* Amount Input */}
             <TextInput
               style={styles.input}
-              placeholder="Amount"
+              placeholder={t('transaction.amount')}
               keyboardType="number-pad"
               value={transactionForm.amount}
-              onChangeText={(text) => setTransactionForm({...transactionForm, amount: text})}
+              onChangeText={(text) => {
+                const formattedText = formatNumberWithCommas(text);
+                setTransactionForm({...transactionForm, amount: formattedText});
+              }}
             />
 
-            {/* Memo Input */}
+            {/* Item Input */}
             <TextInput
               style={styles.input}
-              placeholder="Memo"
+              placeholder={t('transaction.memo')}
               value={transactionForm.memo}
               onChangeText={handleMemoChange}
             />
-
-            {/* Auto-suggestion hint */}
-            {autoSuggestedCategory && autoSuggestedCategory !== 'miscellaneous' && (
-              <Text style={styles.autoSuggestionHint}>
-                💡 자동 분류: {getCategoryName(autoSuggestedCategory, 'ko')}
-              </Text>
-            )}
-
-            {/* Category Selection */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryContainer}>
-              {getAllCategories().map((category) => (
-                <TouchableOpacity
-                  key={category.id}
-                  style={[
-                    styles.categoryButton,
-                    transactionForm.category === category.id && styles.categoryButtonActive
-                  ]}
-                  onPress={() => setTransactionForm({...transactionForm, category: category.id})}
-                >
-                  <Ionicons 
-                    name={category.icon} 
-                    size={20} 
-                    color={transactionForm.category === category.id ? 'white' : colors.text} 
-                  />
-                  <Text style={[
-                    styles.categoryButtonText,
-                    transactionForm.category === category.id && styles.categoryButtonTextActive
-                  ]}>
-                    {category.koreanName}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
 
             {/* Action Buttons */}
             <View style={styles.modalActions}>
@@ -536,7 +529,7 @@ export default function Dashboard({ navigation }) {
                 style={styles.cancelButton}
                 onPress={closeModal}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.cancelButtonText}>{t('app.cancel')}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
@@ -544,7 +537,7 @@ export default function Dashboard({ navigation }) {
                 onPress={saveTransaction}
                 disabled={saving}
               >
-                <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
+                <Text style={styles.saveButtonText}>{saving ? t('app.saving') : t('app.save')}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -560,45 +553,45 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
 
-  compactHeader: {
-    marginHorizontal: 12,
-    marginTop: 6,
-    marginBottom: 8,
-    gap: 8,
+  topBackground: {
+    backgroundColor: '#FFF5C8',
   },
-  headerRow: {
+
+  monthHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    position: 'relative',
+  },
+
+  statsButton: {
+    position: 'absolute',
+    right: 10,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+
+  metricsContainer: {
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    backgroundColor: 'white',
+  },
+      monthText: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: colors.text,
+    },
+  metricsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  monthNav: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  chevronButton: {
-    padding: 4,
-  },
-  monthText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  balanceContainer: {
-    alignItems: 'flex-end',
-  },
-  balanceLabel: {
-    fontSize: 11,
-    color: colors.textMuted,
-    marginBottom: 2,
-  },
-  balanceValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  metricHalf: {
+  metricThird: {
     flex: 1,
+    alignItems: 'center',
   },
   metricLabel: { 
     fontSize: 11, 
@@ -607,37 +600,45 @@ const styles = StyleSheet.create({
   },
   metricValue: { 
     fontSize: 15, 
-    fontWeight: '700', 
+    fontWeight: '500', 
     color: colors.text 
+  },
+  horizontalMetric: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
   },
   weekdayHeader: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     paddingVertical: 4,
-    marginHorizontal: 20,
-    marginBottom: 2,
+    marginHorizontal: 0.5,
+    paddingHorizontal: 6,
+    marginBottom: 0.5,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#E5E7EB',
   },
   weekdayText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#9CA3AF',
     textAlign: 'center',
     flex: 1,
   },
   calendarContainer: {
     backgroundColor: colors.bg,
-    marginHorizontal: 10,
+    marginHorizontal: 0.5,
     borderRadius: 0,
-    padding: 8,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   calendar: {
     borderRadius: 16,
-    paddingVertical: 6,
+    paddingVertical: 0,
   },
   dayWrapper: {
     position: 'relative',
     width: '100%',
-    height: 48,
+    height: 60,
     alignSelf: 'stretch',
     borderRadius: 8,
     overflow: 'hidden',
@@ -645,32 +646,33 @@ const styles = StyleSheet.create({
   dayContent: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 4,
+    justifyContent: 'center',
+    paddingTop: 0,
   },
   dayNumber: {
     fontSize: 13,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 1,
+    marginBottom: 3,
+    marginTop: -2,
   },
   dayNumberSelected: {
     color: colors.accent,
   },
   amountRow: {
-    minHeight: 16,
+    minHeight: 18,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 1,
   },
   incomeText: {
-    fontSize: 8,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '400',
     color: colors.income,
   },
   expenseText: {
-    fontSize: 8,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '400',
     color: colors.expense,
   },
   overlayBase: {
@@ -685,7 +687,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6', // Light gray overlay
   },
   selectedOverlay: {
-    backgroundColor: 'rgba(232, 81, 81, 0.1)', // Very light accent background
+    backgroundColor: '#FFF6C8', // Light yellow background
   },
 
 
@@ -791,32 +793,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
   },
-  categoryContainer: {
-    marginBottom: 20,
-  },
-  categoryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    marginRight: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  categoryButtonActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  categoryButtonText: {
-    marginLeft: 5,
-    fontSize: 14,
-    color: colors.textMuted,
-  },
-  categoryButtonTextActive: {
-    color: 'white',
-  },
+
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -869,12 +846,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 20,
   },
-  autoSuggestionHint: {
-    fontSize: 12,
-    color: colors.accent,
-    marginBottom: 10,
-    marginTop: -10,
-    fontStyle: 'italic',
-  },
 });
+
 
