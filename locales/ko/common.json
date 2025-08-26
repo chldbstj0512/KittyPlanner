@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "키티플래너",
+    "name": "키티가계부",
     "loading": "로딩 중...",
     "error": "오류",
     "cancel": "취소",
@@ -19,7 +19,7 @@
     "expense": "지출",
     "addTransaction": "거래 추가",
             "selectDate": "거래 내역이 없어요",
-    "noTransactions": "거래 내역이 없습니다",
+    "noTransactions": "거래 내역이 없어요",
     "autoSuggestion": "💡 자동 분류: {{category}}"
   },
   "transaction": {

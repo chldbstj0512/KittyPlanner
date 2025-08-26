@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DatabaseService } from '../services/DatabaseService';
-import { CATEGORIES, getAllCategories, getCategoryName, getCategoryColor } from '../constants/Categories';
+import { CATEGORIES, getAllCategories, getCategoryName, getCategoryColor, getCategoryIcon } from '../constants/Categories';
 
 export default function TransactionDetails({ selectedDate, onClose }) {
   const [transactions, setTransactions] = useState([]);
@@ -154,7 +154,7 @@ export default function TransactionDetails({ selectedDate, onClose }) {
           <View style={styles.categoryInfo}>
             <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(item.category || 'miscellaneous') }]}>
               <Ionicons 
-                name={CATEGORIES[(item.category || 'miscellaneous').toUpperCase()]?.icon || 'paw'} 
+                name={getCategoryIcon(item.category || 'miscellaneous').name} 
                 size={20} 
                 color="white" 
               />

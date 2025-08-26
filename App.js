@@ -11,6 +11,7 @@ import Dashboard from './components/Dashboard';
 import TransactionDetails from './components/TransactionDetails';
 import Statistics from './components/Statistics';
 import ErrorBoundary from './components/ErrorBoundary';
+import AppLogo from './components/AppLogo';
 import { colors } from './theme/colors';
 import './i18n/i18n'; // i18n 초기화
 
@@ -59,9 +60,7 @@ export default function App() {
     return (
       <SafeAreaProvider>
         <View style={styles.loadingContainer}>
-          <Ionicons name="paw" size={64} color={colors.accent} />
-          <Text style={styles.loadingText}>{t('app.name')}</Text>
-          <Text style={styles.loadingSubtext}>{t('app.loading')}</Text>
+          <AppLogo size={125} />
         </View>
       </SafeAreaProvider>
     );
@@ -123,7 +122,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.bg,
+    backgroundColor: '#FFF5C8',
   },
   loadingText: {
     fontSize: 24,
@@ -134,6 +133,6 @@ const styles = StyleSheet.create({
   loadingSubtext: {
     fontSize: 16,
     color: colors.textMuted,
-    marginTop: 5,
+    marginTop: 20,
   },
 });

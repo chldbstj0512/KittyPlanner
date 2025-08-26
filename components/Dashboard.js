@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,16 +10,19 @@ import {
   Alert,
   Dimensions,
   FlatList,
-  Pressable
+  Pressable,
+  Animated,
+  PanResponder
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { DatabaseService } from '../services/DatabaseService';
-import { CATEGORIES, getAllCategories, getCategoryName } from '../constants/Categories';
+import { CATEGORIES, getAllCategories, getCategoryName, getCategoryColor, getCategoryIcon } from '../constants/Categories';
 import { suggestCategory } from '../services/CategoryAutoClassifier';
 import AdBanner from './AdBanner';
+import AppLogo from './AppLogo';
 import { colors } from '../theme/colors';
 
 const { width, height } = Dimensions.get('window');
@@ -39,7 +42,7 @@ export default function Dashboard({ navigation }) {
     momDelta: 0,
     momPct: null
   });
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [modalVisible, setModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [transactionForm, setTransactionForm] = useState({
@@ -48,6 +51,46 @@ export default function Dashboard({ navigation }) {
     category: 'miscellaneous',
     memo: ''
   });
+  const [fabVisible, setFabVisible] = useState(true);
+  const lastScrollY = useRef(0);
+  const scrollTimer = useRef(null);
+  
+  // 스크롤 핸들러
+  const handleScroll = (event) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    
+    // 스크롤 차이가 5px 이상일 때만 반응 (더 민감하게)
+    const scrollDiff = currentScrollY - lastScrollY.current;
+    
+    if (Math.abs(scrollDiff) > 5) {
+      if (scrollDiff > 0) {
+        // 아래로 스크롤 - FAB 숨기기
+        setFabVisible(false);
+      } else {
+        // 위로 스크롤 - FAB 보이기
+        setFabVisible(true);
+      }
+      lastScrollY.current = currentScrollY;
+    }
+    
+    // 스크롤이 멈춘 후 1초 뒤에 FAB 다시 보이기
+    if (scrollTimer.current) {
+      clearTimeout(scrollTimer.current);
+    }
+    
+    scrollTimer.current = setTimeout(() => {
+      setFabVisible(true);
+    }, 1000);
+  };
+  
+  // 컴포넌트 언마운트 시 타이머 정리
+  useEffect(() => {
+    return () => {
+      if (scrollTimer.current) {
+        clearTimeout(scrollTimer.current);
+      }
+    };
+  }, []);
 
   // Today key (TZ safe)
   const todayKey = useMemo(() => {
@@ -60,7 +103,21 @@ export default function Dashboard({ navigation }) {
 
   useEffect(() => {
     loadMonthlyData();
+    // 월이 변경될 때마다 selectedDate 초기화하되, 해당 월의 오늘 날짜로 설정
+    const today = new Date();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth();
+    
+    // 현재 표시된 월이 실제 오늘과 같은 월이면 오늘 날짜로, 아니면 해당 월의 1일로 설정
+    if (today.getFullYear() === currentYear && today.getMonth() === currentMonth) {
+      setSelectedDate(today.toISOString().split('T')[0]);
+    } else {
+      const firstDayOfMonth = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+      setSelectedDate(firstDayOfMonth);
+    }
   }, [currentDate]);
+
+
 
   // Build sums by date for calendar display
   const sumsByDate = useMemo(() => {
@@ -152,6 +209,16 @@ export default function Dashboard({ navigation }) {
     if (saving) return;
     if (!transactionForm.amount || !selectedDate) return;
 
+    // 선택된 날짜가 현재 월과 맞는지 검증
+    const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const selectedYearMonth = selectedDate.slice(0, 7);
+    
+    if (selectedYearMonth !== currentYearMonth) {
+      Alert.alert('오류', '선택된 날짜가 현재 월과 맞지 않습니다. 날짜를 다시 선택해주세요.');
+      setSelectedDate(null);
+      return;
+    }
+
     try {
       setSaving(true);
       const payload = {
@@ -161,6 +228,8 @@ export default function Dashboard({ navigation }) {
         category: transactionForm.category,
         memo: (transactionForm.memo || '').trim(),
       };
+      
+
       
       // 학습 기능: 사용자가 자동 제안과 다른 카테고리를 선택했을 때
       if (payload.memo && payload.memo.length >= 3) {
@@ -192,8 +261,23 @@ export default function Dashboard({ navigation }) {
   };
 
   const openAddModal = () => {
-    const today = new Date().toISOString().slice(0, 10);
-    if (!selectedDate) setSelectedDate(today);
+    // 현재 표시된 월의 오늘 날짜로 설정 (실제 오늘이 현재 월이 아닐 수도 있음)
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth();
+    const today = new Date();
+    
+    let defaultDate;
+    if (today.getFullYear() === currentYear && today.getMonth() === currentMonth) {
+      // 현재 월이 실제 오늘과 같은 월이면 오늘 날짜 사용
+      defaultDate = today.toISOString().slice(0, 10);
+    } else {
+      // 다른 월이면 해당 월의 1일로 설정
+      defaultDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+    }
+    
+    if (!selectedDate) {
+      setSelectedDate(defaultDate);
+    }
     setModalVisible(true);
   };
 
@@ -224,10 +308,38 @@ export default function Dashboard({ navigation }) {
     return category ? category.icon : 'paw';
   };
 
+  // 월 이동 함수 - 캘린더와 동일한 방식으로 처리
   const navigateMonth = (direction) => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() + direction);
-    setCurrentDate(newDate);
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth();
+    
+    let newYear = currentYear;
+    let newMonth = currentMonth;
+    
+    if (direction === 'prev') {
+      newMonth = currentMonth - 1;
+      if (newMonth < 0) {
+        newMonth = 11;
+        newYear = currentYear - 1;
+      }
+    } else {
+      newMonth = currentMonth + 1;
+      if (newMonth > 11) {
+        newMonth = 0;
+        newYear = currentYear + 1;
+      }
+    }
+    
+    // 상태 업데이트를 순차적으로 처리하여 동기화 보장
+    const dt = new Date(newYear, newMonth, 1);
+    const firstDayOfMonth = `${newYear}-${String(newMonth + 1).padStart(2, '0')}-01`;
+    
+    setCurrentDate(dt);
+    
+    // selectedDate를 약간 지연시켜 currentDate 업데이트 후 설정
+    setTimeout(() => {
+      setSelectedDate(firstDayOfMonth);
+    }, 0);
   };
 
   const formatMonthYear = (date) => {
@@ -253,22 +365,130 @@ export default function Dashboard({ navigation }) {
     }
   };
 
-  const renderTransaction = ({ item }) => (
-    <View style={styles.txRow}>
-      <View style={styles.txLeft}>
-        <Text style={styles.txMemo}>{item.memo || t('transaction.noMemo')}</Text>
-        <Text style={styles.txCategory}>
-          {getCategoryName(item.category || 'miscellaneous')}
-        </Text>
+  // 거래 삭제 함수
+  const deleteTransaction = async (transactionId) => {
+    Alert.alert(
+      t('app.delete'),
+      '이 항목을 삭제할까요?',
+      [
+        {
+          text: t('app.cancel'),
+          style: 'cancel',
+        },
+        {
+          text: t('app.delete'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await DatabaseService.deleteTransaction(transactionId);
+              await loadMonthlyData();
+            } catch (error) {
+              console.error('Error deleting transaction:', error);
+              Alert.alert(t('app.error'), '거래 삭제에 실패했습니다.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // 각 거래 항목의 애니메이션 상태를 관리하는 ref
+  const swipeAnimations = useRef({}).current;
+
+  const getSwipeAnimation = (itemId) => {
+    if (!swipeAnimations[itemId]) {
+      swipeAnimations[itemId] = new Animated.Value(0);
+    }
+    return swipeAnimations[itemId];
+  };
+
+  const renderTransaction = ({ item }) => {
+    const categoryKey = item.category || 'miscellaneous';
+    
+    // 카테고리별 직접 아이콘 매핑
+    const testIconMap = {
+      'dining': 'cafe',
+      'transport': 'car',
+      'shopping': 'bag',
+      'entertainment': 'game-controller',
+      'essentials': 'bag',
+      'hobbies': 'game-controller',
+      'family': 'gift',
+      'miscellaneous': 'star'
+    };
+    
+    const testIcon = testIconMap[categoryKey] || 'star';
+    const translateX = getSwipeAnimation(item.id);
+    
+    const panResponder = PanResponder.create({
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return Math.abs(gestureState.dx) > 20;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.dx < 0) { // 왼쪽으로 스와이프만
+          translateX.setValue(gestureState.dx);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (gestureState.dx < -100) {
+          // 충분히 왼쪽으로 스와이프하면 삭제
+          deleteTransaction(item.id);
+        }
+        // 원래 위치로 복원
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      },
+    });
+    
+    return (
+      <View style={styles.txRowContainer}>
+        {/* 삭제 버튼 (뒤쪽) */}
+        <View style={styles.deleteBackground}>
+          <Ionicons name="trash" size={24} color="white" />
+        </View>
+        
+        {/* 거래 내역 (앞쪽) */}
+        <Animated.View
+          style={[
+            styles.txRow,
+            {
+              transform: [{ translateX }],
+            },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <View style={styles.txIconContainer}>
+            <View style={[
+              styles.txIcon,
+              { backgroundColor: getCategoryColor(categoryKey) }
+            ]}>
+              <Ionicons 
+                name={testIcon}
+                size={20} 
+                color="#735D2F"
+              />
+            </View>
+          </View>
+          <View style={styles.txContent}>
+            <Text style={styles.txMemo}>{item.memo || t('transaction.noMemo')}</Text>
+            <Text style={styles.txCategory}>
+              {getCategoryName(item.category || 'miscellaneous')}
+            </Text>
+          </View>
+          <View style={styles.txAmountContainer}>
+            <Text style={[
+              styles.txAmount,
+              { color: item.type === 'income' ? colors.income : colors.expense }
+            ]}>
+              {item.type === 'income' ? '+' : '-'}{item.amount.toLocaleString()}원
+            </Text>
+          </View>
+        </Animated.View>
       </View>
-      <Text style={[
-        styles.txAmount,
-        { color: item.type === 'income' ? colors.income : colors.expense }
-      ]}>
-        {formatCurrencyWithSign(item.amount, item.type)}
-      </Text>
-    </View>
-  );
+    );
+  };
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
@@ -279,12 +499,27 @@ export default function Dashboard({ navigation }) {
       <View style={[styles.topBackground, { paddingTop: insets.top + 2 }]}>
         {/* Month Header */}
         <View style={styles.monthHeader}>
-          <Text style={styles.monthText}>{formatMonthYear(currentDate)}</Text>
+          <AppLogo size={32} style={styles.headerLogo} />
+          <View style={styles.monthNavigation}>
+            <TouchableOpacity 
+              style={styles.monthArrow}
+              onPress={() => navigateMonth('prev')}
+            >
+              <Ionicons name="chevron-back" size={16} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.monthText}>{formatMonthYear(currentDate)}</Text>
+            <TouchableOpacity 
+              style={styles.monthArrow}
+              onPress={() => navigateMonth('next')}
+            >
+              <Ionicons name="chevron-forward" size={16} color={colors.text} />
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity 
             style={styles.statsButton}
             onPress={() => navigation.navigate('Statistics')}
           >
-            <Ionicons name="pie-chart-outline" size={20} color={colors.text} />
+            <Ionicons name="stats-chart" size={18} color={colors.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -329,7 +564,8 @@ export default function Dashboard({ navigation }) {
       {/* Calendar */}
       <View style={styles.calendarContainer}>
         <Calendar
-          current={currentDate.toISOString().split('T')[0]}
+          key={`${currentDate.getFullYear()}-${currentDate.getMonth()}`}
+          current={`${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-01`}
           enableSwipeMonths={true}
           disableMonthChange={false}
           firstDay={0}
@@ -337,6 +573,10 @@ export default function Dashboard({ navigation }) {
           onMonthChange={(m) => {
             const dt = new Date(m.year, m.month - 1, 1);
             setCurrentDate(dt);
+            
+            // 해당 월의 첫날로 selectedDate 설정
+            const firstDayOfMonth = `${m.year}-${String(m.month).padStart(2, '0')}-01`;
+            setSelectedDate(firstDayOfMonth);
           }}
           style={styles.calendar}
           theme={{
@@ -398,7 +638,16 @@ export default function Dashboard({ navigation }) {
                 <TouchableOpacity
                   style={styles.dayContent}
                   activeOpacity={0.8}
-                  onPress={() => setSelectedDate(key)}
+                  onPress={() => {
+                    // 단순하고 확실한 방법: 클릭된 날짜의 년-월과 현재 년-월 비교
+                    const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                    const clickedYearMonth = key.slice(0, 7); // "2025-08"
+                    
+                    // 같은 월의 날짜만 선택 허용
+                    if (clickedYearMonth === currentYearMonth) {
+                      setSelectedDate(key);
+                    }
+                  }}
                 >
                   <Text style={[styles.dayNumber, isSelected && styles.dayNumberSelected]}>
                     {date.day}
@@ -429,8 +678,11 @@ export default function Dashboard({ navigation }) {
           <FlatList
             data={dayTransactions}
             keyExtractor={(item) => String(item.id)}
-            contentContainerStyle={{ paddingBottom: 12 }}
+            contentContainerStyle={{ paddingBottom: 12, paddingTop: 2 }}
             renderItem={renderTransaction}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={8}
           />
         )}
       </View>
@@ -441,25 +693,27 @@ export default function Dashboard({ navigation }) {
       </View>
 
       {/* Floating Add Button */}
-      <TouchableOpacity
-        style={[
-          styles.fab,
-          { 
-            bottom: insets.bottom + AD_HEIGHT + 24, 
-            right: 20, 
-            backgroundColor: '#FFF5C8',
-            shadowOffset: {
-              width: 2,
-              height: 3,
-            },
-            shadowOpacity: 0.15,
-            shadowRadius: 4,
-          }
-        ]}
-        onPress={openAddModal}
-      >
-        <Ionicons name="add" size={32} color="#735D2F" style={{fontWeight: '700'}} />
-      </TouchableOpacity>
+      {fabVisible && (
+        <TouchableOpacity
+          style={[
+            styles.fab,
+            { 
+              bottom: insets.bottom + AD_HEIGHT + 24, 
+              right: 20, 
+              backgroundColor: '#FFF5C8',
+              shadowOffset: {
+                width: 2,
+                height: 3,
+              },
+              shadowOpacity: 0.15,
+              shadowRadius: 4,
+            }
+          ]}
+          onPress={openAddModal}
+        >
+          <Ionicons name="add" size={32} color="#735D2F" style={{fontWeight: '700'}} />
+        </TouchableOpacity>
+      )}
 
       {/* Add Transaction Modal */}
       <Modal
@@ -472,14 +726,28 @@ export default function Dashboard({ navigation }) {
         <Pressable style={styles.backdrop} onPress={closeModal}>
           {/* Modal box: press here should NOT close the modal */}
           <Pressable style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{t('transaction.add')}</Text>
-            
-            {/* Type Selection */}
+            {/* 큰 금액 입력 */}
+            <View style={styles.amountSection}>
+              <Text style={styles.currencySymbol}>₩</Text>
+              <TextInput
+                style={styles.amountInput}
+                placeholder="0"
+                keyboardType="number-pad"
+                value={transactionForm.amount}
+                onChangeText={(text) => {
+                  const formattedText = formatNumberWithCommas(text);
+                  setTransactionForm({...transactionForm, amount: formattedText});
+                }}
+                autoFocus={true}
+              />
+            </View>
+
+            {/* Type Selection - 더 큰 버튼들 */}
             <View style={styles.typeContainer}>
               <TouchableOpacity
                 style={[
                   styles.typeButton,
-                  transactionForm.type === 'income' && styles.typeButtonActive
+                  transactionForm.type === 'income' && styles.incomeButtonActive
                 ]}
                 onPress={() => setTransactionForm({...transactionForm, type: 'income'})}
               >
@@ -492,7 +760,7 @@ export default function Dashboard({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.typeButton,
-                  transactionForm.type === 'expense' && styles.typeButtonActive
+                  transactionForm.type === 'expense' && styles.expenseButtonActive
                 ]}
                 onPress={() => setTransactionForm({...transactionForm, type: 'expense'})}
               >
@@ -503,24 +771,14 @@ export default function Dashboard({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            {/* Amount Input */}
-            <TextInput
-              style={styles.input}
-              placeholder={t('transaction.amount')}
-              keyboardType="number-pad"
-              value={transactionForm.amount}
-              onChangeText={(text) => {
-                const formattedText = formatNumberWithCommas(text);
-                setTransactionForm({...transactionForm, amount: formattedText});
-              }}
-            />
-
             {/* Item Input */}
             <TextInput
-              style={styles.input}
+              style={styles.itemInput}
               placeholder={t('transaction.memo')}
               value={transactionForm.memo}
               onChangeText={handleMemoChange}
+              onSubmitEditing={saveTransaction}
+              returnKeyType="done"
             />
 
             {/* Action Buttons */}
@@ -565,10 +823,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     position: 'relative',
   },
+  headerLogo: {
+    position: 'absolute',
+    left: 20,
+  },
 
   statsButton: {
     position: 'absolute',
-    right: 10,
+    right: 25,
     padding: 8,
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
@@ -579,11 +841,21 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: 'white',
   },
-      monthText: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: colors.text,
-    },
+        monthNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthArrow: {
+    padding: 8,
+    marginHorizontal: 4,
+  },
+  monthText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.text,
+    marginHorizontal: 12,
+  },
   metricsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -614,8 +886,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 0.5,
     paddingHorizontal: 6,
     marginBottom: 0.5,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#E5E7EB',
   },
   weekdayText: {
     fontSize: 11,
@@ -687,33 +957,64 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6', // Light gray overlay
   },
   selectedOverlay: {
-    backgroundColor: '#FFF6C8', // Light yellow background
+    backgroundColor: 'rgba(255, 246, 200, 0.4)', // 살짝 더 진한 노란색 배경
   },
 
 
+  txRowContainer: {
+    position: 'relative',
+    marginHorizontal: 2,
+    marginVertical: 1,
+  },
   txRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    backgroundColor: 'white',
+    borderRadius: 0,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  txLeft: { 
-    maxWidth: '70%' 
+  deleteBackground: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    backgroundColor: '#FF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 0,
+  },
+  txIconContainer: {
+    marginRight: 12,
+  },
+  txIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  txContent: {
+    flex: 1,
+    marginRight: 12,
   },
   txMemo: { 
-    fontSize: 14, 
-    color: colors.text 
+    fontSize: 15, 
+    color: colors.text,
+    fontWeight: '500',
+    marginBottom: 2,
   },
   txCategory: { 
-    fontSize: 12, 
-    color: colors.textMuted, 
-    marginTop: 2 
+    fontSize: 13, 
+    color: colors.textMuted,
+  },
+  txAmountContainer: {
+    alignItems: 'flex-end',
   },
   txAmount: { 
-    fontSize: 14, 
-    fontWeight: '700' 
+    fontSize: 15, 
+    fontWeight: '600',
   },
 
   fab: {
@@ -728,6 +1029,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 6,
   },
+
   adContainer: {
     height: AD_HEIGHT,
     borderStyle: 'dashed',
@@ -760,29 +1062,79 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     color: colors.text,
   },
+  // 금액 입력 섹션
+  amountSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 15,
+    paddingVertical: 10,
+    width: '80%',
+    alignSelf: 'center',
+  },
+  currencySymbol: {
+    fontSize: 48,
+    fontWeight: '300',
+    color: colors.textMuted,
+    marginRight: 10,
+  },
+  amountInput: {
+    fontSize: 48,
+    fontWeight: '300',
+    color: colors.text,
+    textAlign: 'right',
+    minWidth: 240,
+    maxWidth: 280,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+    paddingBottom: 8,
+    paddingHorizontal: 10,
+  },
+  
+  // 타입 선택 버튼
   typeContainer: {
     flexDirection: 'row',
-    marginBottom: 20,
-    borderRadius: 10,
-    backgroundColor: colors.border,
-    padding: 4,
+    marginBottom: 30,
+    gap: 15,
+    width: '90%',
+    alignSelf: 'center',
   },
   typeButton: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 20,
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
   },
-  typeButtonActive: {
-    backgroundColor: colors.accent,
+  incomeButtonActive: {
+    backgroundColor: '#D4EFDB',
+  },
+  expenseButtonActive: {
+    backgroundColor: '#FFD6D6',
   },
   typeButtonText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: colors.textMuted,
   },
   typeButtonTextActive: {
-    color: 'white',
+    color: colors.text,
+  },
+  
+  // 항목 입력
+  itemInput: {
+    borderWidth: 0,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+    borderRadius: 0,
+    padding: 15,
+    paddingHorizontal: 0,
+    marginBottom: 25,
+    fontSize: 17,
+    backgroundColor: 'transparent',
+    color: colors.text,
+    width: '90%',
+    alignSelf: 'center',
   },
   input: {
     borderWidth: 1,
@@ -797,31 +1149,50 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 15,
+    marginTop: 10,
+    width: '90%',
+    alignSelf: 'center',
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 15,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingVertical: 18,
+    borderRadius: 16,
+    backgroundColor: '#f8f9fa',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   cancelButtonText: {
-    fontSize: 16,
-    color: colors.textMuted,
+    fontSize: 17,
+    color: colors.text,
+    fontWeight: '600',
   },
   saveButton: {
     flex: 1,
-    paddingVertical: 15,
-    borderRadius: 10,
-    backgroundColor: colors.accent,
+    paddingVertical: 18,
+    borderRadius: 16,
+    backgroundColor: '#FFF5C8',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 1,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 3,
   },
   saveButtonText: {
-    fontSize: 16,
-    color: 'white',
-    fontWeight: '600',
+    fontSize: 17,
+    color: '#735D2F',
+    fontWeight: '700',
   },
   dayListContainer: {
     flex: 1,
@@ -847,5 +1218,6 @@ const styles = StyleSheet.create({
     padding: 20,
   },
 });
+
 
 

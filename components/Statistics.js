@@ -5,8 +5,10 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Dimensions
+  Dimensions,
+  Alert
 } from 'react-native';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { PieChart } from 'react-native-chart-kit';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
@@ -14,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { DatabaseService } from '../services/DatabaseService';
 import { CATEGORIES, getCategoryName, getCategoryColor } from '../constants/Categories';
 import AdBanner from './AdBanner';
+import AppLogo from './AppLogo';
 
 const { width } = Dimensions.get('window');
 
@@ -31,12 +34,15 @@ export default function Statistics({ navigation }) {
   });
   const [chartData, setChartData] = useState([]);
   const [categoryChartData, setCategoryChartData] = useState([]);
-  const [currentView, setCurrentView] = useState('overview'); // 'overview' or 'categories'
+
   const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [selectedSegment, setSelectedSegment] = useState(null); // null = overview, 'income' or 'expense' = drilldown
 
   useEffect(() => {
     loadMonthlyStatistics();
   }, [selectedMonth]);
+
+
 
   const loadMonthlyStatistics = async () => {
     try {
@@ -69,10 +75,9 @@ export default function Statistics({ navigation }) {
         totalExpenses: validPrevSummary.totalExpenses || 0
       });
 
-      // Prepare overview chart data (Income vs Expense vs Balance)
+      // Prepare overview chart data (Income vs Expense only)
       const safeIncome = Number(validSummary.totalIncome) || 0;
       const safeExpenses = Number(validSummary.totalExpenses) || 0;
-      const balance = safeIncome - safeExpenses;
       
       const overviewData = [];
       
@@ -80,9 +85,10 @@ export default function Statistics({ navigation }) {
         overviewData.push({
           name: t('dashboard.income'),
           amount: safeIncome,
-          color: '#1E90FF',
+          color: '#A8D8EA', // 연한 하늘색
           legendFontColor: '#433B2D',
           legendFontSize: 12,
+          type: 'income'
         });
       }
       
@@ -90,34 +96,26 @@ export default function Statistics({ navigation }) {
         overviewData.push({
           name: t('dashboard.expense'),
           amount: safeExpenses,
-          color: '#EF4444',
+          color: '#FFB6C1', // 연한 분홍색
           legendFontColor: '#433B2D',
           legendFontSize: 12,
-        });
-      }
-
-      // Only add balance if it's positive
-      if (balance > 0) {
-        overviewData.push({
-          name: t('dashboard.balance'),
-          amount: balance,
-          color: '#22C55E',
-          legendFontColor: '#433B2D',
-          legendFontSize: 12,
+          type: 'expense'
         });
       }
 
       setChartData(overviewData);
 
-      // Prepare category chart data
+      // Prepare category chart data with colors from Categories.js
       const categoryData = validCategories
         .filter(category => category && (Number(category.categoryTotal) || 0) > 0)
+        .sort((a, b) => (Number(b.categoryTotal) || 0) - (Number(a.categoryTotal) || 0)) // 금액순 정렬
         .map((category, index) => ({
           name: getCategoryName(category.category || 'miscellaneous'),
           amount: Number(category.categoryTotal) || 0,
           color: getCategoryColor(category.category || 'miscellaneous'),
           legendFontColor: '#433B2D',
           legendFontSize: 12,
+          category: category.category
         }));
 
       setCategoryChartData(categoryData);
@@ -140,9 +138,9 @@ export default function Statistics({ navigation }) {
 
   const formatCurrency = (amount) => {
     if (amount === undefined || amount === null || isNaN(amount)) {
-      return '₩0';
+      return '0원';
     }
-    return `₩${Number(amount).toLocaleString()}`;
+    return `${Number(amount).toLocaleString()}원`;
   };
 
   const formatPercentage = (amount, total) => {
@@ -166,6 +164,8 @@ export default function Statistics({ navigation }) {
     };
   };
 
+
+
   const getMonthOptions = () => {
     const options = [];
     const currentDate = new Date();
@@ -181,6 +181,138 @@ export default function Statistics({ navigation }) {
     return options;
   };
 
+  const handleChartPress = (data, index) => {
+    console.log('Chart pressed:', data, index);
+    const chartData = getCurrentChartData();
+    const clickedData = chartData[index];
+    
+    if (clickedData && clickedData.type === 'expense') {
+      setSelectedSegment('expense');
+    }
+    // 수입은 클릭해도 아무 반응하지 않음
+  };
+
+  const getCurrentChartData = () => {
+    if (selectedSegment === 'expense') {
+      return categoryChartData;
+    }
+    return chartData;
+  };
+
+  const getCurrentChartTitle = () => {
+    if (selectedSegment === 'expense') {
+      return '지출 카테고리별 분석';
+    }
+    return '수입 vs 지출';
+  };
+
+  // Custom Pie Chart Component
+  const CustomPieChart = ({ data, size = 200 }) => {
+    if (!data || data.length === 0) return null;
+
+    const radius = size / 2 - 10;
+    const center = size / 2;
+    let currentAngle = -90; // Start from top
+
+    const total = data.reduce((sum, item) => sum + item.amount, 0);
+    
+    const elements = [];
+    let angleTracker = -90;
+    
+    data.forEach((item, index) => {
+      const percentage = (item.amount / total) * 100;
+      const angle = (item.amount / total) * 360;
+      
+      const startAngle = angleTracker;
+      const endAngle = angleTracker + angle;
+      const midAngle = startAngle + angle / 2; // 중간 각도
+      angleTracker = endAngle;
+
+      const startAngleRad = (startAngle * Math.PI) / 180;
+      const endAngleRad = (endAngle * Math.PI) / 180;
+
+      // 40px 오프셋을 적용한 좌표
+      const centerX = center + 40;
+      const centerY = center + 40;
+      const x1 = centerX + radius * Math.cos(startAngleRad);
+      const y1 = centerY + radius * Math.sin(startAngleRad);
+      const x2 = centerX + radius * Math.cos(endAngleRad);
+      const y2 = centerY + radius * Math.sin(endAngleRad);
+
+      const largeArcFlag = angle > 180 ? 1 : 0;
+
+      const pathData = [
+        `M ${centerX} ${centerY}`,
+        `L ${x1} ${y1}`,
+        `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+        `Z`
+      ].join(' ');
+
+      // 라벨 위치 계산 (원 위에, 40px 오프셋 고려)
+      const labelRadius = radius * 0.73; // 도넛 두께 중앙에 배치
+      const midAngleRad = (midAngle * Math.PI) / 180;
+      const labelX = center + labelRadius * Math.cos(midAngleRad) + 40;
+      const labelY = center + labelRadius * Math.sin(midAngleRad) + 40;
+
+      // Path 추가
+      elements.push(
+        <Path
+          key={`path-${index}`}
+          d={pathData}
+          fill={item.color}
+          stroke="white"
+          strokeWidth="2"
+        />
+      );
+
+      // 라벨 정보 저장 (5% 이상인 경우에만)
+      if (percentage >= 5) {
+        item.labelX = labelX;
+        item.labelY = labelY;
+        item.percentage = percentage.toFixed(0);
+      }
+    });
+
+    return (
+      <View style={styles.customChartContainer}>
+        <View style={{ position: 'relative' }}>
+          <Svg width={size + 80} height={size + 80}>
+            {elements}
+            {/* Inner circle for donut effect */}
+            <Circle
+              cx={center + 40}
+              cy={center + 40}
+              r={radius * 0.45}
+              fill="white"
+            />
+          </Svg>
+          
+          {/* 라벨들을 절대 위치로 배치 */}
+          {data.map((item, index) => {
+            if (item.labelX && item.labelY && item.percentage >= 5) {
+              return (
+                <Text
+                  key={`label-${index}`}
+                  style={[
+                    styles.chartLabel,
+                    {
+                      position: 'absolute',
+                      left: item.labelX - 35, // 중앙 정렬을 위한 조정 (너비 70px의 절반)
+                      top: item.labelY - 10,  // 중앙 정렬을 위한 조정
+                    }
+                  ]}
+                >
+                  {`${item.name} ${item.percentage}%`}
+                </Text>
+              );
+            }
+            return null;
+          })}
+        </View>
+      </View>
+    );
+  };
+
   const chartConfig = {
     backgroundGradientFrom: '#fff',
     backgroundGradientTo: '#fff',
@@ -191,162 +323,89 @@ export default function Statistics({ navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
+        <AppLogo size={24} style={styles.headerLogo} />
         <TouchableOpacity 
-          style={styles.backButton}
+          style={styles.closeButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#433B2D" />
+          <Ionicons name="close" size={28} color="#333" />
         </TouchableOpacity>
       </View>
 
-      {/* Month Selector */}
-      <View style={styles.monthSelector}>
-        <TouchableOpacity 
-          style={styles.monthPickerButton}
-          onPress={() => setShowMonthPicker(!showMonthPicker)}
-        >
-          <Text style={styles.currentMonthText}>
-            {`${selectedMonth.getFullYear()}년 ${selectedMonth.getMonth() + 1}월`}
-          </Text>
-          <Ionicons 
-            name={showMonthPicker ? "chevron-up" : "chevron-down"} 
-            size={20} 
-            color="#433B2D" 
-          />
-        </TouchableOpacity>
-        
-        {showMonthPicker && (
-          <View style={styles.monthDropdown}>
-            {getMonthOptions().map((option, index) => (
-              <TouchableOpacity
-                key={option.value.toISOString()}
-                style={[
-                  styles.monthOption,
-                  selectedMonth.getTime() === option.value.getTime() && styles.monthOptionSelected
-                ]}
-                onPress={() => {
-                  setSelectedMonth(option.value);
-                  setShowMonthPicker(false);
-                }}
-              >
-                <Text style={[
-                  styles.monthOptionText,
-                  selectedMonth.getTime() === option.value.getTime() && styles.monthOptionTextSelected
-                ]}>
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+        {/* Total Amount */}
+        <View style={styles.totalSection}>
+          <Text style={styles.totalLabel}>{selectedMonth.getMonth() + 1}월 지출</Text>
+          <Text style={styles.totalAmount}>{formatCurrency(monthlyData.totalExpenses)}</Text>
+          
+          <View style={styles.comparisonInfo}>
+            {(() => {
+              const expenseComparison = calculateMonthComparison(monthlyData.totalExpenses, previousMonthData.totalExpenses);
+              
+              if (expenseComparison.amount > 0) {
+                const amountText = `${Math.round(expenseComparison.amount / 10000)}만원 ${expenseComparison.isIncrease ? '더' : '덜'}`;
+                const amountColor = expenseComparison.isIncrease ? '#FF6B6B' : '#4A90E2'; // 더 쓴 경우 빨강, 덜 쓴 경우 파랑
+                
+                return (
+                  <Text style={styles.comparisonText}>
+                    지난달보다 <Text style={[styles.comparisonAmount, { color: amountColor }]}>{amountText}</Text> 쓰는 중
+                  </Text>
+                );
+              } else {
+                return (
+                  <Text style={styles.comparisonText}>지난달과 비슷한 지출</Text>
+                );
+              }
+            })()}
           </View>
-        )}
-      </View>
+        </View>
 
-      {/* Chart View Toggle */}
-      <View style={styles.toggleContainer}>
-        <TouchableOpacity 
-          style={[styles.toggleButton, currentView === 'overview' && styles.toggleButtonActive]}
-          onPress={() => setCurrentView('overview')}
-        >
-          <Text style={[styles.toggleText, currentView === 'overview' && styles.toggleTextActive]}>
-            수입·지출·잔액
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.toggleButton, currentView === 'categories' && styles.toggleButtonActive]}
-          onPress={() => setCurrentView('categories')}
-        >
-          <Text style={[styles.toggleText, currentView === 'categories' && styles.toggleTextActive]}>
-            카테고리별 지출
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Month Comparison */}
-      {(() => {
-        const expenseComparison = calculateMonthComparison(monthlyData.totalExpenses, previousMonthData.totalExpenses);
-        return (
-          <View style={styles.comparisonContainer}>
-            <Text style={styles.comparisonTitle}>전월 대비</Text>
-            <View style={styles.comparisonRow}>
-              <Ionicons 
-                name={expenseComparison.isIncrease ? "trending-up" : "trending-down"} 
-                size={20} 
-                color={expenseComparison.isIncrease ? "#EF4444" : "#22C55E"} 
-              />
-              <Text style={[styles.comparisonText, { color: expenseComparison.isIncrease ? "#EF4444" : "#22C55E" }]}>
-                {expenseComparison.isIncrease ? '더 많이' : '더 적게'} 소비: {formatCurrency(expenseComparison.amount)} ({expenseComparison.percentage}%)
-              </Text>
-            </View>
-          </View>
-        );
-      })()}
-
-      {/* Pie Chart */}
-      {(currentView === 'overview' ? chartData : categoryChartData).length > 0 ? (
-        <View style={styles.chartContainer}>
-          <Text style={styles.chartTitle}>
-            {currentView === 'overview' ? '수입·지출·잔액 비율' : '카테고리별 지출 분석'}
-          </Text>
-          <PieChart
-            data={currentView === 'overview' ? chartData : categoryChartData}
-            width={width - 40}
-            height={220}
-            chartConfig={chartConfig}
-            accessor="amount"
-            backgroundColor="transparent"
-            paddingLeft="15"
-            absolute
+        {/* Pie Chart */}
+        <View style={styles.chartSection}>
+          <CustomPieChart 
+            data={categoryChartData.length > 0 ? categoryChartData : [
+              { name: '데이터 없음', amount: 1, color: '#E5E7EB' }
+            ]}
+            size={250}
           />
         </View>
-      ) : (
-        <View style={styles.emptyChart}>
-          <Ionicons name="pie-chart-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyText}>{t('statistics.noData')}</Text>
-        </View>
-      )}
 
-      {/* Category Details */}
-      <View style={styles.categoryDetails}>
-        <Text style={styles.categoryTitle}>{t('statistics.categoryDetails')}</Text>
-        {monthlyData.categories
-          .filter(category => category && (Number(category.categoryTotal) || 0) > 0)
-          .map((category, index) => {
-            const categoryTotal = Number(category.categoryTotal) || 0;
-            const totalExpenses = Number(monthlyData.totalExpenses) || 0;
-            
-            return (
-              <View key={index} style={styles.categoryItem}>
-                <View style={styles.categoryInfo}>
-                  <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(category.category || 'miscellaneous') }]}>
-                    <Ionicons 
-                      name={CATEGORIES[(category.category || 'miscellaneous').toUpperCase()]?.icon || 'paw'} 
-                      size={16} 
-                      color="white" 
-                    />
-                  </View>
-                  <View style={styles.categoryText}>
+        {/* Category List - Scrollable */}
+        <ScrollView style={styles.categoryScrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.categoryList}>
+            {categoryChartData.map((item, index) => {
+              const categoryTotal = item.amount;
+              const totalExpenses = Number(monthlyData.totalExpenses) || 0;
+              const percentage = totalExpenses > 0 ? ((categoryTotal / totalExpenses) * 100).toFixed(0) : 0;
+              
+              return (
+                <View key={index} style={styles.categoryRow}>
+                  <View style={styles.categoryLeft}>
+                    <Text style={styles.categoryPercent}>{percentage}%</Text>
+                    <View style={[styles.categoryIcon, { backgroundColor: item.color }]}>
+                      <Ionicons 
+                        name={CATEGORIES[(item.category || 'miscellaneous').toUpperCase()]?.icon || 'restaurant'} 
+                        size={16} 
+                        color="#735D2F" 
+                      />
+                    </View>
                     <Text style={styles.categoryName}>
-                      {getCategoryName(category.category || 'miscellaneous')}
+                      {item.name}
                     </Text>
-                    <Text style={styles.categoryAmount}>
-                      {formatCurrency(categoryTotal)}
-                    </Text>
+                    <View style={[styles.progressBar, { backgroundColor: item.color, width: `${Math.min(percentage * 3, 100)}%` }]} />
                   </View>
+                  <Text style={styles.categoryAmount}>{formatCurrency(categoryTotal)}</Text>
                 </View>
-                <Text style={styles.categoryPercentage}>
-                  {formatPercentage(categoryTotal, totalExpenses)}
-                </Text>
-              </View>
-            );
-          })}
-      </View>
-
-      {/* Ad Banner */}
+              );
+            })}
+          </View>
+        </ScrollView>
+      
+      {/* AdBanner at the bottom */}
       <AdBanner />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -358,261 +417,162 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    paddingTop: 50,
-    backgroundColor: 'white',
-  },
-  backButton: {
-    padding: 8,
-  },
-
-  monthSelector: {
+    justifyContent: 'flex-end',
     paddingHorizontal: 20,
-    paddingVertical: 2,
+    paddingTop: 50,
+    paddingBottom: 0,
     backgroundColor: 'white',
-    marginTop: 0,
-  },
-  monthPickerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingVertical: 4,
-    paddingHorizontal: 0,
     position: 'relative',
   },
-  currentMonthText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#433B2D',
-    marginRight: 8,
-  },
-  monthDropdown: {
+  headerLogo: {
     position: 'absolute',
-    top: 50,
-    left: 0,
-    right: 0,
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    maxHeight: 200,
-    zIndex: 1000,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
+    left: 20,
   },
-  monthOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+  closeButton: {
+    padding: 12,
   },
-  monthOptionSelected: {
-    backgroundColor: '#FFF5C8',
-  },
-  monthOptionText: {
-    fontSize: 16,
-    color: '#433B2D',
-  },
-  monthOptionTextSelected: {
-    fontWeight: '600',
-  },
-  toggleContainer: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-    margin: 20,
-    borderRadius: 10,
-    padding: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  toggleButton: {
+  content: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  toggleButtonActive: {
-    backgroundColor: '#FFF5C8',
+  categoryScrollView: {
+    flex: 1,
+    marginTop: -10,
   },
-  toggleText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
-  },
-  toggleTextActive: {
-    color: '#433B2D',
-    fontWeight: '600',
-  },
-  comparisonContainer: {
+  totalSection: {
     backgroundColor: 'white',
-    marginHorizontal: 20,
-    marginBottom: 10,
-    borderRadius: 10,
-    padding: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  comparisonTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#433B2D',
-    marginBottom: 8,
-  },
-  comparisonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  comparisonText: {
-    fontSize: 14,
-    marginLeft: 8,
-    fontWeight: '500',
-  },
-  summaryContainer: {
-    flexDirection: 'row',
     padding: 20,
-    backgroundColor: 'white',
-    marginTop: 10,
+    paddingTop: 5,
+    marginBottom: 0,
+    paddingBottom: 0,
   },
-  summaryCard: {
-    flex: 1,
-    padding: 15,
-    borderRadius: 10,
-    marginHorizontal: 5,
-    alignItems: 'center',
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#666',
+  totalLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
     marginBottom: 5,
   },
-  summaryAmount: {
-    fontSize: 18,
+  totalAmount: {
+    fontSize: 28,
     fontWeight: 'bold',
+    color: '#FF6B6B',
+    marginBottom: 8,
   },
-  chartContainer: {
-    backgroundColor: 'white',
-    margin: 20,
-    borderRadius: 15,
-    padding: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+  comparisonInfo: {
+    alignItems: 'flex-start',
+    marginTop: 3,
   },
-  chartTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  comparisonText: {
+    fontSize: 15,
+    fontWeight: '500',
     color: '#333',
-    marginBottom: 15,
   },
-  emptyChart: {
+  comparisonAmount: {
+    fontWeight: '600',
+  },
+  chartSection: {
     backgroundColor: 'white',
-    margin: 20,
-    borderRadius: 15,
-    padding: 40,
+    paddingVertical: 0,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    marginBottom: 0,
   },
-  emptyText: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 10,
-  },
-  categoryDetails: {
-    backgroundColor: 'white',
-    margin: 20,
-    borderRadius: 15,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  categoryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  categoryItem: {
+  chartLabels: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 20,
   },
-  categoryInfo: {
+  chartLabelItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 15,
+    marginBottom: 8,
+  },
+  chartLabelColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  chartLabelText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  customChartContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  chartLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#433B2D',
+    textAlign: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    width: 70,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  categoryList: {
+    backgroundColor: 'white',
+    paddingHorizontal: 20,
+    paddingTop: 0,
+    paddingBottom: 20,
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+  categoryLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    position: 'relative',
+  },
+  categoryPercent: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    width: 35,
+    textAlign: 'right',
+    marginRight: 12,
   },
   categoryIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
-  categoryText: {
-    flex: 1,
-  },
   categoryName: {
     fontSize: 16,
-    fontWeight: '600',
     color: '#333',
+    fontWeight: '500',
+    marginRight: 12,
+  },
+  progressBar: {
+    height: 4,
+    borderRadius: 2,
+    position: 'absolute',
+    left: 59,
+    right: 0,
+    top: '50%',
+    marginTop: 15,
+    opacity: 0.3,
   },
   categoryAmount: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
-  },
-  categoryPercentage: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#4CAF50',
-  },
-  adBanner: {
-    backgroundColor: '#f0f0f0',
-    height: 60,
-    margin: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderStyle: 'dashed',
-  },
-  adText: {
-    fontSize: 14,
-    color: '#999',
+    color: '#333',
   },
 });
