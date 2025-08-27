@@ -31,7 +31,7 @@
       "income": "Income",
       "expense": "Expense"
     },
-    "noMemo": "(no item)"
+    "noMemo": ""
   },
   "statistics": {
     "title": "Statistics",
@@ -47,16 +47,18 @@
     "food": "Food",
     "transport": "Transport",
     "shopping": "Shopping",
-    "entertainment": "Entertainment",
+    "entertainment": "Leisure",
+    "hobbies": "Entertainment",
     "bills": "Bills",
+    "essentials": "Essentials",
     "health": "Health",
+    "medical": "Medical",
     "education": "Education",
     "travel": "Travel",
     "miscellaneous": "Miscellaneous",
-    "salary": "Salary",
-    "business": "Business",
-    "investment": "Investment",
-    "gift": "Gift"
+    "gift": "Gift",
+    "family": "Family/Friends",
+    "fixed_expense": "Fixed Expense",
   },
   "months": {
     "1": "January",

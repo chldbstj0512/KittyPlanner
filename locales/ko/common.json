@@ -31,7 +31,7 @@
       "income": "수입",
       "expense": "지출"
     },
-    "noMemo": "(항목 없음)"
+    "noMemo": ""
   },
   "statistics": {
     "title": "통계",
@@ -47,16 +47,18 @@
     "food": "식비",
     "transport": "교통비",
     "shopping": "쇼핑",
-    "entertainment": "오락",
+    "entertainment": "여가",
+    "hobbies": "오락",
     "bills": "공과금",
+    "essentials": "생활용품",
     "health": "의료",
+    "medical": "의료비",
     "education": "교육",
     "travel": "여행",
     "miscellaneous": "기타",
-    "salary": "급여",
-    "business": "사업",
-    "investment": "투자",
-    "gift": "선물"
+    "gift": "선물",
+    "family": "가족·친구",
+    "fixed_expense": "고정지출",
   },
   "months": {
     "1": "1월",

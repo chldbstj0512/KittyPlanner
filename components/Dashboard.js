@@ -23,6 +23,7 @@ import { CATEGORIES, getAllCategories, getCategoryName, getCategoryColor, getCat
 import { suggestCategory } from '../services/CategoryAutoClassifier';
 import AdBanner from './AdBanner';
 import AppLogo from './AppLogo';
+import DevHelper from './DevHelper';
 import { colors } from '../theme/colors';
 
 const { width, height } = Dimensions.get('window');
@@ -51,6 +52,8 @@ export default function Dashboard({ navigation }) {
     category: 'miscellaneous',
     memo: ''
   });
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingTransactionId, setEditingTransactionId] = useState(null);
   const [fabVisible, setFabVisible] = useState(true);
   const lastScrollY = useRef(0);
   const scrollTimer = useRef(null);
@@ -203,6 +206,10 @@ export default function Dashboard({ navigation }) {
       category: 'miscellaneous',
       memo: ''
     });
+    // 수정 모드 초기화
+    setIsEditMode(false);
+    setEditingTransactionId(null);
+    // selectedDate는 유지 (날짜 선택 상태 보존)
   };
 
   const saveTransaction = async () => {
@@ -221,13 +228,22 @@ export default function Dashboard({ navigation }) {
 
     try {
       setSaving(true);
+      // 저장 시점에 자동 분류 다시 실행
+      const autoSuggestedCategory = suggestCategory((transactionForm.memo || '').trim());
+      
       const payload = {
         date: selectedDate,
         amount: Number(removeCommas(transactionForm.amount)),
         type: transactionForm.type,
-        category: transactionForm.category,
+        category: autoSuggestedCategory, // 자동 분류 결과 사용
         memo: (transactionForm.memo || '').trim(),
       };
+      
+      console.log('=== TRANSACTION SAVED ===');
+      console.log('Transaction payload:', payload);
+      console.log('Auto-suggested category:', autoSuggestedCategory);
+      console.log('Final category:', payload.category);
+      console.log('========================');
       
 
       
@@ -249,7 +265,13 @@ export default function Dashboard({ navigation }) {
         }
       }
       
-      await DatabaseService.addTransaction(payload);
+      if (isEditMode && editingTransactionId) {
+        // 수정 모드일 때는 업데이트
+        await DatabaseService.updateTransaction(editingTransactionId, payload);
+      } else {
+        // 새 거래 추가
+        await DatabaseService.addTransaction(payload);
+      }
       await loadMonthlyData(); // refresh month cache & sums
       closeModal(); // close and reset form (single entry)
     } catch (error) {
@@ -261,23 +283,28 @@ export default function Dashboard({ navigation }) {
   };
 
   const openAddModal = () => {
-    // 현재 표시된 월의 오늘 날짜로 설정 (실제 오늘이 현재 월이 아닐 수도 있음)
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth();
-    const today = new Date();
+    // 수정 모드 초기화 (새 거래 추가 시)
+    setIsEditMode(false);
+    setEditingTransactionId(null);
     
-    let defaultDate;
-    if (today.getFullYear() === currentYear && today.getMonth() === currentMonth) {
-      // 현재 월이 실제 오늘과 같은 월이면 오늘 날짜 사용
-      defaultDate = today.toISOString().slice(0, 10);
-    } else {
-      // 다른 월이면 해당 월의 1일로 설정
-      defaultDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
-    }
-    
+    // 선택된 날짜가 없으면 기본값 설정 (첫 선택)
     if (!selectedDate) {
+      const currentYear = currentDate.getFullYear();
+      const currentMonth = currentDate.getMonth();
+      const today = new Date();
+      
+      let defaultDate;
+      if (today.getFullYear() === currentYear && today.getMonth() === currentMonth) {
+        // 현재 월이 실제 오늘이고 같은 월이면 오늘 날짜 사용
+        defaultDate = today.toISOString().slice(0, 10);
+      } else {
+        // 다른 월이면 해당 월의 1일로 설정
+        defaultDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+      }
+      
       setSelectedDate(defaultDate);
     }
+    // 이미 선택된 날짜가 있으면 그 날짜를 유지 (이전 선택 유지)
     setModalVisible(true);
   };
 
@@ -336,10 +363,10 @@ export default function Dashboard({ navigation }) {
     
     setCurrentDate(dt);
     
-    // selectedDate를 약간 지연시켜 currentDate 업데이트 후 설정
-    setTimeout(() => {
-      setSelectedDate(firstDayOfMonth);
-    }, 0);
+    // selectedDate는 유지 (월 이동 시에도 선택된 날짜 보존)
+    // setTimeout(() => {
+    //   setSelectedDate(firstDayOfMonth);
+    // }, 0);
   };
 
   const formatMonthYear = (date) => {
@@ -350,19 +377,40 @@ export default function Dashboard({ navigation }) {
 
   // 항목 기반 자동 카테고리 분류
   const handleMemoChange = (memoText) => {
+    console.log('handleMemoChange: Raw input:', memoText);
+    console.log('handleMemoChange: Input length:', memoText?.length);
+    console.log('handleMemoChange: Input type:', typeof memoText);
+    console.log('handleMemoChange: Input char codes:', memoText?.split('').map(c => c.charCodeAt(0)));
+    
     setTransactionForm(prev => ({
       ...prev,
       memo: memoText
     }));
 
-    // 항목이 3글자 이상일 때만 자동 분류 실행
-    if (memoText && memoText.trim().length >= 3) {
+    // 지출일 때만 자동 분류 실행 (수입은 제외)
+    if (transactionForm.type === 'expense' && memoText && memoText.trim().length >= 1) {
+      console.log('handleMemoChange: Auto-categorizing memo:', memoText);
       const suggestedCategory = suggestCategory(memoText);
+      console.log('handleMemoChange: Suggested category:', suggestedCategory);
       setTransactionForm(prev => ({
         ...prev,
         category: suggestedCategory
       }));
     }
+  };
+
+  // 거래 수정 함수
+  const handleEditTransaction = (transaction) => {
+    setIsEditMode(true);
+    setEditingTransactionId(transaction.id);
+    setTransactionForm({
+      amount: transaction.amount.toString(),
+      type: transaction.type,
+      category: transaction.category,
+      memo: transaction.memo || ''
+    });
+    setSelectedDate(transaction.date);
+    setModalVisible(true);
   };
 
   // 거래 삭제 함수
@@ -405,19 +453,9 @@ export default function Dashboard({ navigation }) {
   const renderTransaction = ({ item }) => {
     const categoryKey = item.category || 'miscellaneous';
     
-    // 카테고리별 직접 아이콘 매핑
-    const testIconMap = {
-      'dining': 'cafe',
-      'transport': 'car',
-      'shopping': 'bag',
-      'entertainment': 'game-controller',
-      'essentials': 'bag',
-      'hobbies': 'game-controller',
-      'family': 'gift',
-      'miscellaneous': 'star'
-    };
-    
-    const testIcon = testIconMap[categoryKey] || 'star';
+    // Categories.js에서 표준 아이콘 가져오기
+    const categoryIconData = getCategoryIcon(categoryKey);
+    const iconName = categoryIconData?.name || 'star';
     const translateX = getSwipeAnimation(item.id);
     
     const panResponder = PanResponder.create({
@@ -458,32 +496,33 @@ export default function Dashboard({ navigation }) {
             },
           ]}
           {...panResponder.panHandlers}
+          onLongPress={() => handleEditTransaction(item)}
         >
           <View style={styles.txIconContainer}>
-            <View style={[
-              styles.txIcon,
-              { backgroundColor: getCategoryColor(categoryKey) }
-            ]}>
-              <Ionicons 
-                name={testIcon}
-                size={20} 
-                color="#735D2F"
-              />
-            </View>
+                                  <View style={[
+                        styles.txIcon,
+                        { backgroundColor: item.type === 'income' ? 'rgba(76, 175, 80, 0.8)' : getCategoryColor(categoryKey) }
+                      ]}>
+                        <Ionicons 
+                          name={item.type === 'income' ? 'add-circle' : iconName}
+                          size={20} 
+                          color="white"
+                        />
+                      </View>
           </View>
           <View style={styles.txContent}>
-            <Text style={styles.txMemo}>{item.memo || t('transaction.noMemo')}</Text>
             <Text style={styles.txCategory}>
-              {getCategoryName(item.category || 'miscellaneous')}
+              {item.type === 'income' ? '수입' : getCategoryName(item.category || 'miscellaneous')}
             </Text>
+            <Text style={styles.txMemo}>{item.memo || ''}</Text>
           </View>
           <View style={styles.txAmountContainer}>
-            <Text style={[
-              styles.txAmount,
-              { color: item.type === 'income' ? colors.income : colors.expense }
-            ]}>
-              {item.type === 'income' ? '+' : '-'}{item.amount.toLocaleString()}원
-            </Text>
+                                  <Text style={[
+                        styles.txAmount,
+                        { color: item.type === 'income' ? 'rgba(76, 175, 80, 0.9)' : colors.expense }
+                      ]}>
+                        {item.type === 'income' ? '+' : '-'}{item.amount.toLocaleString()}원
+                      </Text>
           </View>
         </Animated.View>
       </View>
@@ -517,7 +556,9 @@ export default function Dashboard({ navigation }) {
           </View>
           <TouchableOpacity 
             style={styles.statsButton}
-            onPress={() => navigation.navigate('Statistics')}
+            onPress={() => navigation.navigate('Statistics', { 
+              selectedMonth: currentDate 
+            })}
           >
             <Ionicons name="stats-chart" size={18} color={colors.text} />
           </TouchableOpacity>
@@ -530,9 +571,9 @@ export default function Dashboard({ navigation }) {
           <View style={styles.metricThird}>
             <Text style={styles.horizontalMetric}>
               <Text style={styles.metricLabel}>{t('dashboard.income')}   </Text>
-              <Text style={[styles.metricValue, { color: colors.income }]}>
-                {monthlySummary.totalIncome.toLocaleString()}원
-              </Text>
+                          <Text style={[styles.metricValue, { color: 'rgba(76, 175, 80, 0.9)' }]}>
+              {monthlySummary.totalIncome.toLocaleString()}원
+            </Text>
             </Text>
           </View>
           <View style={styles.metricThird}>
@@ -726,6 +767,11 @@ export default function Dashboard({ navigation }) {
         <Pressable style={styles.backdrop} onPress={closeModal}>
           {/* Modal box: press here should NOT close the modal */}
           <Pressable style={styles.modalContent}>
+            {/* 모달 제목 */}
+            <Text style={styles.modalTitle}>
+              {isEditMode ? '거래 수정' : '거래 추가'}
+            </Text>
+            
             {/* 큰 금액 입력 */}
             <View style={styles.amountSection}>
               <Text style={styles.currencySymbol}>₩</Text>
@@ -781,6 +827,15 @@ export default function Dashboard({ navigation }) {
               returnKeyType="done"
             />
 
+            {/* Auto Category Display - 지출일 때만 표시 */}
+            {transactionForm.type === 'expense' && transactionForm.memo && transactionForm.memo.trim().length >= 1 && (
+              <View style={styles.autoCategoryContainer}>
+                <Text style={styles.autoCategoryText}>
+                  💡 자동 분류: {getCategoryName(transactionForm.category)}
+                </Text>
+              </View>
+            )}
+
             {/* Action Buttons */}
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -801,6 +856,9 @@ export default function Dashboard({ navigation }) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Development Helper */}
+      <DevHelper />
     </View>
   );
 }
@@ -873,7 +931,10 @@ const styles = StyleSheet.create({
   metricValue: { 
     fontSize: 15, 
     fontWeight: '500', 
-    color: colors.text 
+    color: colors.text,
+    fontFamily: 'monospace',
+    minWidth: 80,
+    textAlign: 'right'
   },
   horizontalMetric: {
     flexDirection: 'row',
@@ -935,11 +996,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 1,
   },
-  incomeText: {
-    fontSize: 10,
-    fontWeight: '400',
-    color: colors.income,
-  },
+      incomeText: {
+      fontSize: 10,
+      fontWeight: '400',
+      color: 'rgba(76, 175, 80, 0.9)',
+    },
   expenseText: {
     fontSize: 10,
     fontWeight: '400',
@@ -967,12 +1028,12 @@ const styles = StyleSheet.create({
     marginVertical: 1,
   },
   txRow: {
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingHorizontal: 8,
     backgroundColor: 'white',
     borderRadius: 0,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   deleteBackground: {
     position: 'absolute',
@@ -998,16 +1059,19 @@ const styles = StyleSheet.create({
   txContent: {
     flex: 1,
     marginRight: 12,
+    justifyContent: 'flex-start',
+    paddingTop: 2,
   },
   txMemo: { 
     fontSize: 15, 
     color: colors.text,
     fontWeight: '500',
-    marginBottom: 2,
+    marginBottom: 10,
   },
   txCategory: { 
-    fontSize: 13, 
-    color: colors.textMuted,
+    fontSize: 11, 
+    color: '#9CA3AF',
+    marginTop: 2,
   },
   txAmountContainer: {
     alignItems: 'flex-end',
@@ -1015,6 +1079,9 @@ const styles = StyleSheet.create({
   txAmount: { 
     fontSize: 15, 
     fontWeight: '600',
+    fontFamily: 'monospace',
+    minWidth: 70,
+    textAlign: 'right'
   },
 
   fab: {
@@ -1129,12 +1196,24 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     padding: 15,
     paddingHorizontal: 0,
-    marginBottom: 25,
+    marginBottom: 10,
     fontSize: 17,
     backgroundColor: 'transparent',
     color: colors.text,
     width: '90%',
     alignSelf: 'center',
+  },
+  autoCategoryContainer: {
+    marginBottom: 20,
+    paddingHorizontal: 15,
+    width: '90%',
+    alignSelf: 'center',
+  },
+  autoCategoryText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontStyle: 'italic',
+    textAlign: 'right',
   },
   input: {
     borderWidth: 1,

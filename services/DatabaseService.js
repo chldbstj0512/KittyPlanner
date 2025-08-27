@@ -84,6 +84,11 @@ export const DatabaseService = {
     return db.runAsync('DELETE FROM transactions WHERE id = ?', [id]);
   },
 
+  clearAllTransactions: async () => {
+    const db = await getDb();
+    return db.runAsync('DELETE FROM transactions');
+  },
+
   getMonthlySummary: async (year, month) => {
     const db = await getDb();
     const { start, end } = getMonthDateRange(year, month);
@@ -104,9 +109,12 @@ export const DatabaseService = {
     const incomeRow = validRows.find(r => r.type === 'income');
     const expenseRows = validRows.filter(r => r.type === 'expense');
     
+    console.log('DatabaseService - getMonthlySummary rows:', validRows);
+    console.log('DatabaseService - expenseRows:', expenseRows);
+    
     return {
       totalIncome: incomeRow ? (incomeRow.totalIncome || 0) : 0,
-      totalExpenses: expenseRows.reduce((sum, row) => sum + (row.totalExpenses || 0), 0),
+      totalExpenses: expenseRows.reduce((sum, row) => sum + (row.categoryTotal || 0), 0),
       categories: expenseRows,
     };
   },

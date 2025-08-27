@@ -16,22 +16,18 @@ import { useTranslation } from 'react-i18next';
 import { DatabaseService } from '../services/DatabaseService';
 import { CATEGORIES, getCategoryName, getCategoryColor } from '../constants/Categories';
 import AdBanner from './AdBanner';
-import AppLogo from './AppLogo';
 
 const { width } = Dimensions.get('window');
 
-export default function Statistics({ navigation }) {
+export default function Statistics({ navigation, route }) {
   const { t } = useTranslation();
-  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [selectedMonth, setSelectedMonth] = useState(route.params?.selectedMonth || new Date());
   const [monthlyData, setMonthlyData] = useState({
     totalIncome: 0,
     totalExpenses: 0,
     categories: []
   });
-  const [previousMonthData, setPreviousMonthData] = useState({
-    totalIncome: 0,
-    totalExpenses: 0
-  });
+
   const [chartData, setChartData] = useState([]);
   const [categoryChartData, setCategoryChartData] = useState([]);
 
@@ -52,27 +48,14 @@ export default function Statistics({ navigation }) {
       // Get current month data
       const summary = await DatabaseService.getMonthlySummary(year, month);
       
-      // Get previous month data for comparison
-      const prevDate = new Date(selectedMonth);
-      prevDate.setMonth(prevDate.getMonth() - 1);
-      const prevYear = prevDate.getFullYear();
-      const prevMonth = prevDate.getMonth() + 1;
-      const prevSummary = await DatabaseService.getMonthlySummary(prevYear, prevMonth);
-      
       // Ensure we have valid data
       const validSummary = summary || { totalIncome: 0, totalExpenses: 0, categories: [] };
       const validCategories = validSummary.categories || [];
-      const validPrevSummary = prevSummary || { totalIncome: 0, totalExpenses: 0 };
       
       setMonthlyData({
         totalIncome: validSummary.totalIncome || 0,
         totalExpenses: validSummary.totalExpenses || 0,
         categories: validCategories
-      });
-
-      setPreviousMonthData({
-        totalIncome: validPrevSummary.totalIncome || 0,
-        totalExpenses: validPrevSummary.totalExpenses || 0
       });
 
       // Prepare overview chart data (Income vs Expense only)
@@ -106,6 +89,9 @@ export default function Statistics({ navigation }) {
       setChartData(overviewData);
 
       // Prepare category chart data with colors from Categories.js
+      console.log('Statistics - validCategories:', validCategories);
+      console.log('Statistics - validSummary:', validSummary);
+      
       const categoryData = validCategories
         .filter(category => category && (Number(category.categoryTotal) || 0) > 0)
         .sort((a, b) => (Number(b.categoryTotal) || 0) - (Number(a.categoryTotal) || 0)) // 금액순 정렬
@@ -118,6 +104,7 @@ export default function Statistics({ navigation }) {
           category: category.category
         }));
 
+      console.log('Statistics - categoryData:', categoryData);
       setCategoryChartData(categoryData);
     } catch (error) {
       console.error('Error loading statistics:', error);
@@ -148,21 +135,7 @@ export default function Statistics({ navigation }) {
     return `${((amount / total) * 100).toFixed(1)}%`;
   };
 
-  const calculateMonthComparison = (current, previous) => {
-    const safeCurrent = Number(current) || 0;
-    const safePrevious = Number(previous) || 0;
-    
-    if (safePrevious === 0) {
-      return safeCurrent > 0 ? { percentage: 100, isIncrease: true, amount: safeCurrent } : { percentage: 0, isIncrease: false, amount: 0 };
-    }
-    const difference = safeCurrent - safePrevious;
-    const percentage = Math.abs((difference / safePrevious) * 100);
-    return {
-      percentage: percentage.toFixed(1),
-      isIncrease: difference > 0,
-      amount: Math.abs(difference)
-    };
-  };
+
 
 
 
@@ -208,20 +181,28 @@ export default function Statistics({ navigation }) {
 
   // Custom Pie Chart Component
   const CustomPieChart = ({ data, size = 200 }) => {
-    if (!data || data.length === 0) return null;
+    console.log('CustomPieChart - data:', data);
+    console.log('CustomPieChart - data.length:', data?.length);
+    if (!data || data.length === 0) {
+      console.log('CustomPieChart - returning null due to empty data');
+      return null;
+    }
 
     const radius = size / 2 - 10;
     const center = size / 2;
     let currentAngle = -90; // Start from top
 
     const total = data.reduce((sum, item) => sum + item.amount, 0);
+    console.log('CustomPieChart - total:', total);
     
     const elements = [];
     let angleTracker = -90;
     
     data.forEach((item, index) => {
       const percentage = (item.amount / total) * 100;
-      const angle = (item.amount / total) * 360;
+      // 단일 카테고리일 때는 전체 원(360도)을 그리도록 수정
+      const angle = data.length === 1 ? 360 : (item.amount / total) * 360;
+      console.log(`CustomPieChart - item ${index}:`, item.name, 'amount:', item.amount, 'percentage:', percentage, 'angle:', angle, 'data.length:', data.length);
       
       const startAngle = angleTracker;
       const endAngle = angleTracker + angle;
@@ -239,14 +220,30 @@ export default function Statistics({ navigation }) {
       const x2 = centerX + radius * Math.cos(endAngleRad);
       const y2 = centerY + radius * Math.sin(endAngleRad);
 
-      const largeArcFlag = angle > 180 ? 1 : 0;
-
-      const pathData = [
-        `M ${centerX} ${centerY}`,
-        `L ${x1} ${y1}`,
-        `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
-        `Z`
-      ].join(' ');
+      // 360도 원의 경우 특별한 처리
+      let pathData;
+      if (angle >= 360) {
+        // 완전한 원을 그리기 위해 두 개의 반원으로 나누어 그리기
+        const midAngleRad = (startAngle + 180) * Math.PI / 180;
+        const midX = centerX + radius * Math.cos(midAngleRad);
+        const midY = centerY + radius * Math.sin(midAngleRad);
+        
+        pathData = [
+          `M ${centerX} ${centerY}`,
+          `L ${x1} ${y1}`,
+          `A ${radius} ${radius} 0 1 1 ${midX} ${midY}`,
+          `A ${radius} ${radius} 0 1 1 ${x1} ${y1}`,
+          `Z`
+        ].join(' ');
+      } else {
+        const largeArcFlag = angle > 180 ? 1 : 0;
+        pathData = [
+          `M ${centerX} ${centerY}`,
+          `L ${x1} ${y1}`,
+          `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+          `Z`
+        ].join(' ');
+      }
 
       // 라벨 위치 계산 (원 위에, 40px 오프셋 고려)
       const labelRadius = radius * 0.73; // 도넛 두께 중앙에 배치
@@ -255,6 +252,7 @@ export default function Statistics({ navigation }) {
       const labelY = center + labelRadius * Math.sin(midAngleRad) + 40;
 
       // Path 추가
+      console.log(`CustomPieChart - pathData for ${item.name}:`, pathData);
       elements.push(
         <Path
           key={`path-${index}`}
@@ -265,8 +263,8 @@ export default function Statistics({ navigation }) {
         />
       );
 
-      // 라벨 정보 저장 (5% 이상인 경우에만)
-      if (percentage >= 5) {
+      // 라벨 정보 저장 (5% 이상이거나 단일 카테고리인 경우)
+      if (percentage >= 5 || data.length === 1) {
         item.labelX = labelX;
         item.labelY = labelY;
         item.percentage = percentage.toFixed(0);
@@ -289,7 +287,7 @@ export default function Statistics({ navigation }) {
           
           {/* 라벨들을 절대 위치로 배치 */}
           {data.map((item, index) => {
-            if (item.labelX && item.labelY && item.percentage >= 5) {
+            if (item.labelX && item.labelY && (item.percentage >= 5 || data.length === 1)) {
               return (
                 <Text
                   key={`label-${index}`}
@@ -326,7 +324,6 @@ export default function Statistics({ navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <AppLogo size={24} style={styles.headerLogo} />
         <TouchableOpacity 
           style={styles.closeButton}
           onPress={() => navigation.goBack()}
@@ -340,68 +337,59 @@ export default function Statistics({ navigation }) {
           <Text style={styles.totalLabel}>{selectedMonth.getMonth() + 1}월 지출</Text>
           <Text style={styles.totalAmount}>{formatCurrency(monthlyData.totalExpenses)}</Text>
           
-          <View style={styles.comparisonInfo}>
-            {(() => {
-              const expenseComparison = calculateMonthComparison(monthlyData.totalExpenses, previousMonthData.totalExpenses);
-              
-              if (expenseComparison.amount > 0) {
-                const amountText = `${Math.round(expenseComparison.amount / 10000)}만원 ${expenseComparison.isIncrease ? '더' : '덜'}`;
-                const amountColor = expenseComparison.isIncrease ? '#FF6B6B' : '#4A90E2'; // 더 쓴 경우 빨강, 덜 쓴 경우 파랑
-                
-                return (
-                  <Text style={styles.comparisonText}>
-                    지난달보다 <Text style={[styles.comparisonAmount, { color: amountColor }]}>{amountText}</Text> 쓰는 중
-                  </Text>
-                );
-              } else {
-                return (
-                  <Text style={styles.comparisonText}>지난달과 비슷한 지출</Text>
-                );
-              }
-            })()}
-          </View>
+
         </View>
 
-        {/* Pie Chart */}
-        <View style={styles.chartSection}>
-          <CustomPieChart 
-            data={categoryChartData.length > 0 ? categoryChartData : [
-              { name: '데이터 없음', amount: 1, color: '#E5E7EB' }
-            ]}
-            size={250}
-          />
-        </View>
+        {(() => {
+          console.log('Statistics render - categoryChartData:', categoryChartData);
+          console.log('Statistics render - categoryChartData.length:', categoryChartData.length);
+          return categoryChartData.length > 0 ? (
+          <>
+            {/* Pie Chart */}
+            <View style={styles.chartSection}>
+              <CustomPieChart 
+                data={categoryChartData}
+                size={250}
+              />
+            </View>
 
-        {/* Category List - Scrollable */}
-        <ScrollView style={styles.categoryScrollView} showsVerticalScrollIndicator={false}>
-          <View style={styles.categoryList}>
-            {categoryChartData.map((item, index) => {
-              const categoryTotal = item.amount;
-              const totalExpenses = Number(monthlyData.totalExpenses) || 0;
-              const percentage = totalExpenses > 0 ? ((categoryTotal / totalExpenses) * 100).toFixed(0) : 0;
-              
-              return (
-                <View key={index} style={styles.categoryRow}>
-                  <View style={styles.categoryLeft}>
-                    <Text style={styles.categoryPercent}>{percentage}%</Text>
-                    <View style={[styles.categoryIcon, { backgroundColor: item.color }]}>
-                      <Ionicons 
-                        name={CATEGORIES[(item.category || 'miscellaneous').toUpperCase()]?.icon || 'restaurant'} 
-                        size={16} 
-                        color="#735D2F" 
-                      />
+            {/* Category List - Scrollable */}
+            <ScrollView style={styles.categoryScrollView} showsVerticalScrollIndicator={false}>
+              <View style={styles.categoryList}>
+                {categoryChartData.map((item, index) => {
+                  const categoryTotal = item.amount;
+                  const totalExpenses = Number(monthlyData.totalExpenses) || 0;
+                  const percentage = totalExpenses > 0 ? ((categoryTotal / totalExpenses) * 100).toFixed(0) : 0;
+                  
+                  return (
+                    <View key={index} style={styles.categoryRow}>
+                      <View style={styles.categoryLeft}>
+                        <Text style={styles.categoryPercent}>{percentage}%</Text>
+                        <View style={[styles.categoryIcon, { backgroundColor: item.color }]}>
+                          <Ionicons 
+                            name="star" 
+                            size={16} 
+                            color="white" 
+                          />
+                        </View>
+                        <Text style={styles.categoryName}>
+                          {item.name}
+                        </Text>
+                        <View style={[styles.progressBar, { backgroundColor: item.color, width: `${Math.min(percentage * 3, 100)}%` }]} />
+                      </View>
+                      <Text style={styles.categoryAmount}>{formatCurrency(categoryTotal)}</Text>
                     </View>
-                    <Text style={styles.categoryName}>
-                      {item.name}
-                    </Text>
-                    <View style={[styles.progressBar, { backgroundColor: item.color, width: `${Math.min(percentage * 3, 100)}%` }]} />
-                  </View>
-                  <Text style={styles.categoryAmount}>{formatCurrency(categoryTotal)}</Text>
-                </View>
-              );
-            })}
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </>
+        ) : (
+          <View style={styles.noDataContainer}>
+            <Text style={styles.noDataText}>지출이 없습니다</Text>
           </View>
-        </ScrollView>
+        );
+        })()}
       
       {/* AdBanner at the bottom */}
       <AdBanner />
@@ -422,11 +410,6 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     paddingBottom: 0,
     backgroundColor: 'white',
-    position: 'relative',
-  },
-  headerLogo: {
-    position: 'absolute',
-    left: 20,
   },
   closeButton: {
     padding: 12,
@@ -574,5 +557,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
+  },
+  noDataContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  noDataText: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
   },
 });

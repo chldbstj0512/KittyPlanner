@@ -29,16 +29,6 @@ export default function App() {
     try {
       console.log('Starting app initialization...');
       
-      // For Android debugging: skip database initialization temporarily
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Development mode: skipping database for Android test');
-        setTimeout(() => {
-          console.log('Loading complete (dev mode)');
-          setIsLoading(false);
-        }, 2000);
-        return;
-      }
-      
       // Add timeout to prevent infinite loading
       const initPromise = DatabaseService.initDatabase();
       const timeoutPromise = new Promise((_, reject) => 
