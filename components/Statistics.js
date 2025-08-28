@@ -89,8 +89,6 @@ export default function Statistics({ navigation, route }) {
       setChartData(overviewData);
 
       // Prepare category chart data with colors from Categories.js
-      console.log('Statistics - validCategories:', validCategories);
-      console.log('Statistics - validSummary:', validSummary);
       
       const categoryData = validCategories
         .filter(category => category && (Number(category.categoryTotal) || 0) > 0)
@@ -104,7 +102,6 @@ export default function Statistics({ navigation, route }) {
           category: category.category
         }));
 
-      console.log('Statistics - categoryData:', categoryData);
       setCategoryChartData(categoryData);
     } catch (error) {
       console.error('Error loading statistics:', error);
@@ -181,10 +178,7 @@ export default function Statistics({ navigation, route }) {
 
   // Custom Pie Chart Component
   const CustomPieChart = ({ data, size = 200 }) => {
-    console.log('CustomPieChart - data:', data);
-    console.log('CustomPieChart - data.length:', data?.length);
     if (!data || data.length === 0) {
-      console.log('CustomPieChart - returning null due to empty data');
       return null;
     }
 
@@ -193,7 +187,6 @@ export default function Statistics({ navigation, route }) {
     let currentAngle = -90; // Start from top
 
     const total = data.reduce((sum, item) => sum + item.amount, 0);
-    console.log('CustomPieChart - total:', total);
     
     const elements = [];
     let angleTracker = -90;
@@ -202,7 +195,6 @@ export default function Statistics({ navigation, route }) {
       const percentage = (item.amount / total) * 100;
       // 단일 카테고리일 때는 전체 원(360도)을 그리도록 수정
       const angle = data.length === 1 ? 360 : (item.amount / total) * 360;
-      console.log(`CustomPieChart - item ${index}:`, item.name, 'amount:', item.amount, 'percentage:', percentage, 'angle:', angle, 'data.length:', data.length);
       
       const startAngle = angleTracker;
       const endAngle = angleTracker + angle;
@@ -252,7 +244,6 @@ export default function Statistics({ navigation, route }) {
       const labelY = center + labelRadius * Math.sin(midAngleRad) + 40;
 
       // Path 추가
-      console.log(`CustomPieChart - pathData for ${item.name}:`, pathData);
       elements.push(
         <Path
           key={`path-${index}`}
@@ -340,10 +331,7 @@ export default function Statistics({ navigation, route }) {
 
         </View>
 
-        {(() => {
-          console.log('Statistics render - categoryChartData:', categoryChartData);
-          console.log('Statistics render - categoryChartData.length:', categoryChartData.length);
-          return categoryChartData.length > 0 ? (
+        {categoryChartData.length > 0 ? (
           <>
             {/* Pie Chart */}
             <View style={styles.chartSection}>
@@ -388,8 +376,7 @@ export default function Statistics({ navigation, route }) {
           <View style={styles.noDataContainer}>
             <Text style={styles.noDataText}>지출이 없습니다</Text>
           </View>
-        );
-        })()}
+        )}
       
       {/* AdBanner at the bottom */}
       <AdBanner />

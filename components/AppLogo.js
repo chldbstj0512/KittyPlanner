@@ -8,6 +8,7 @@ const AppLogo = ({ size = 32, style }) => {
         source={require('../assets/icon.png')}
         style={[styles.logo, { width: size, height: size }]}
         resizeMode="contain"
+
       />
     </View>
   );

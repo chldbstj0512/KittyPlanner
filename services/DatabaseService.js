@@ -109,8 +109,7 @@ export const DatabaseService = {
     const incomeRow = validRows.find(r => r.type === 'income');
     const expenseRows = validRows.filter(r => r.type === 'expense');
     
-    console.log('DatabaseService - getMonthlySummary rows:', validRows);
-    console.log('DatabaseService - expenseRows:', expenseRows);
+
     
     return {
       totalIncome: incomeRow ? (incomeRow.totalIncome || 0) : 0,

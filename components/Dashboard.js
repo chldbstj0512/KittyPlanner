@@ -22,8 +22,8 @@ import { DatabaseService } from '../services/DatabaseService';
 import { CATEGORIES, getAllCategories, getCategoryName, getCategoryColor, getCategoryIcon } from '../constants/Categories';
 import { suggestCategory } from '../services/CategoryAutoClassifier';
 import AdBanner from './AdBanner';
-import AppLogo from './AppLogo';
-import DevHelper from './DevHelper';
+import NotificationSettings from './NotificationSettings';
+
 import { colors } from '../theme/colors';
 
 const { width, height } = Dimensions.get('window');
@@ -55,6 +55,7 @@ export default function Dashboard({ navigation }) {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingTransactionId, setEditingTransactionId] = useState(null);
   const [fabVisible, setFabVisible] = useState(true);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   const lastScrollY = useRef(0);
   const scrollTimer = useRef(null);
   
@@ -538,7 +539,12 @@ export default function Dashboard({ navigation }) {
       <View style={[styles.topBackground, { paddingTop: insets.top + 2 }]}>
         {/* Month Header */}
         <View style={styles.monthHeader}>
-          <AppLogo size={32} style={styles.headerLogo} />
+          <TouchableOpacity 
+            style={styles.notificationButton}
+            onPress={() => setShowNotificationSettings(true)}
+          >
+            <Ionicons name="notifications" size={18} color={colors.text} />
+          </TouchableOpacity>
           <View style={styles.monthNavigation}>
             <TouchableOpacity 
               style={styles.monthArrow}
@@ -767,11 +773,6 @@ export default function Dashboard({ navigation }) {
         <Pressable style={styles.backdrop} onPress={closeModal}>
           {/* Modal box: press here should NOT close the modal */}
           <Pressable style={styles.modalContent}>
-            {/* 모달 제목 */}
-            <Text style={styles.modalTitle}>
-              {isEditMode ? '거래 수정' : '거래 추가'}
-            </Text>
-            
             {/* 큰 금액 입력 */}
             <View style={styles.amountSection}>
               <Text style={styles.currencySymbol}>₩</Text>
@@ -857,8 +858,15 @@ export default function Dashboard({ navigation }) {
         </Pressable>
       </Modal>
 
-      {/* Development Helper */}
-      <DevHelper />
+      {/* Notification Settings Modal */}
+      <Modal
+        visible={showNotificationSettings}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowNotificationSettings(false)}
+      >
+        <NotificationSettings onClose={() => setShowNotificationSettings(false)} />
+      </Modal>
     </View>
   );
 }
@@ -876,22 +884,24 @@ const styles = StyleSheet.create({
   monthHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
     position: 'relative',
   },
-  headerLogo: {
-    position: 'absolute',
-    left: 20,
-  },
+
 
   statsButton: {
-    position: 'absolute',
-    right: 25,
     padding: 8,
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    marginRight: 15,
+  },
+  notificationButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    marginLeft: 15,
   },
 
   metricsContainer: {
@@ -903,6 +913,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    flex: 1,
   },
   monthArrow: {
     padding: 8,
@@ -1122,13 +1133,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     padding: 16,
   },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 20,
-    color: colors.text,
-  },
+
   // 금액 입력 섹션
   amountSection: {
     flexDirection: 'row',
@@ -1138,6 +1143,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     width: '80%',
     alignSelf: 'center',
+    marginTop: 10,
   },
   currencySymbol: {
     fontSize: 48,
@@ -1161,7 +1167,7 @@ const styles = StyleSheet.create({
   // 타입 선택 버튼
   typeContainer: {
     flexDirection: 'row',
-    marginBottom: 30,
+    marginBottom: 15,
     gap: 15,
     width: '90%',
     alignSelf: 'center',
@@ -1295,6 +1301,15 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     padding: 20,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    zIndex: 1000,
+    padding: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 20,
   },
 });
 

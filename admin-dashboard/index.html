@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KittyPlanner 관리자 대시보드</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #FFF5C8 0%, #FFE4B5 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #FFD93D 0%, #FFA500 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border: 2px solid #f0f0f0;
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+
+        .stat-number {
+            font-size: 3em;
+            font-weight: bold;
+            color: #FF6B6B;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 1.1em;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .data-section {
+            padding: 30px;
+            border-top: 1px solid #f0f0f0;
+        }
+
+        .section-title {
+            font-size: 1.5em;
+            color: #333;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .data-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .data-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .refresh-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-bottom: 20px;
+            transition: background 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background: #45a049;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .success {
+            background: #e8f5e8;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🐱 KittyPlanner 관리자 대시보드</h1>
+            <p>사용자 데이터 및 앱 통계 모니터링</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" id="dau">-</div>
+                <div class="stat-label">일일 활성 사용자 (DAU)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="mau">-</div>
+                <div class="stat-label">월간 활성 사용자 (MAU)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="total-users">-</div>
+                <div class="stat-label">총 사용자 수</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="total-transactions">-</div>
+                <div class="stat-label">총 거래 수</div>
+            </div>
+        </div>
+
+        <div class="data-section">
+            <h2 class="section-title">📊 최근 사용자 활동</h2>
+            <button class="refresh-btn" onclick="loadData()">새로고침</button>
+            <div id="user-activity">
+                <div class="loading">데이터를 불러오는 중...</div>
+            </div>
+        </div>
+
+        <div class="data-section">
+            <h2 class="section-title">📈 거래 통계</h2>
+            <div id="transaction-stats">
+                <div class="loading">통계를 불러오는 중...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 샘플 데이터 (실제로는 서버에서 가져와야 함)
+        const sampleData = {
+            dau: 1250,
+            mau: 8500,
+            totalUsers: 15000,
+            totalTransactions: 45000,
+            recentActivity: [
+                { userId: 'user_001', action: '거래 추가', amount: 50000, category: '식비', timestamp: '2025-08-27 14:30:00' },
+                { userId: 'user_002', action: '거래 수정', amount: 30000, category: '교통비', timestamp: '2025-08-27 14:25:00' },
+                { userId: 'user_003', action: '거래 삭제', amount: 15000, category: '쇼핑', timestamp: '2025-08-27 14:20:00' },
+                { userId: 'user_004', action: '거래 추가', amount: 80000, category: '고정지출', timestamp: '2025-08-27 14:15:00' },
+                { userId: 'user_005', action: '통계 조회', amount: 0, category: '-', timestamp: '2025-08-27 14:10:00' }
+            ],
+            transactionStats: {
+                byCategory: [
+                    { category: '식비', count: 12000, total: 450000000 },
+                    { category: '교통비', count: 8000, total: 240000000 },
+                    { category: '쇼핑', count: 10000, total: 300000000 },
+                    { category: '고정지출', count: 5000, total: 200000000 },
+                    { category: '오락', count: 6000, total: 180000000 }
+                ],
+                byMonth: [
+                    { month: '2025-08', count: 8000, total: 320000000 },
+                    { month: '2025-07', count: 7500, total: 280000000 },
+                    { month: '2025-06', count: 7000, total: 260000000 }
+                ]
+            }
+        };
+
+        function formatNumber(num) {
+            return num.toLocaleString();
+        }
+
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('ko-KR', {
+                style: 'currency',
+                currency: 'KRW'
+            }).format(amount);
+        }
+
+        function loadData() {
+            // 실제 구현에서는 서버 API를 호출해야 함
+            updateStats();
+            updateUserActivity();
+            updateTransactionStats();
+        }
+
+        function updateStats() {
+            document.getElementById('dau').textContent = formatNumber(sampleData.dau);
+            document.getElementById('mau').textContent = formatNumber(sampleData.mau);
+            document.getElementById('total-users').textContent = formatNumber(sampleData.totalUsers);
+            document.getElementById('total-transactions').textContent = formatNumber(sampleData.totalTransactions);
+        }
+
+        function updateUserActivity() {
+            const container = document.getElementById('user-activity');
+            const table = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>사용자 ID</th>
+                            <th>활동</th>
+                            <th>금액</th>
+                            <th>카테고리</th>
+                            <th>시간</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sampleData.recentActivity.map(activity => `
+                            <tr>
+                                <td>${activity.userId}</td>
+                                <td>${activity.action}</td>
+                                <td>${activity.amount > 0 ? formatCurrency(activity.amount) : '-'}</td>
+                                <td>${activity.category}</td>
+                                <td>${activity.timestamp}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            container.innerHTML = table;
+        }
+
+        function updateTransactionStats() {
+            const container = document.getElementById('transaction-stats');
+            const table = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>카테고리</th>
+                            <th>거래 수</th>
+                            <th>총 금액</th>
+                            <th>평균 금액</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sampleData.transactionStats.byCategory.map(stat => `
+                            <tr>
+                                <td>${stat.category}</td>
+                                <td>${formatNumber(stat.count)}</td>
+                                <td>${formatCurrency(stat.total)}</td>
+                                <td>${formatCurrency(stat.total / stat.count)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            container.innerHTML = table;
+        }
+
+        // 페이지 로드 시 데이터 표시
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+            
+            // 30초마다 자동 새로고침
+            setInterval(loadData, 30000);
+        });
+    </script>
+</body>
+</html>
+

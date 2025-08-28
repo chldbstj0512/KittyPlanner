@@ -19,7 +19,7 @@ i18n
   .init({
     resources,
     lng: 'ko', // 기본 언어를 한국어로 설정
-    fallbackLng: 'en', // 번역이 없을 때 사용할 언어
+    fallbackLng: 'ko', // 번역이 없을 때도 한국어 사용
     
     ns: ['common'],
     defaultNS: 'common',
@@ -34,5 +34,8 @@ i18n
       useSuspense: false, // React Native에서는 Suspense를 사용하지 않음
     },
   });
+
+// 강제로 한국어 설정
+i18n.changeLanguage('ko');
 
 export default i18n;
