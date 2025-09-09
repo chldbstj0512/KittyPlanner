@@ -54,7 +54,7 @@ export default function NotificationSettings({ onClose }) {
           if (success) {
             setIsEnabled(true);
             setHasPermission(true);
-            Alert.alert('알림 설정', '오후 10시 알림이 설정되었습니다!');
+            Alert.alert('알림 설정', '현지 시간 오후 10시 알림이 설정되었습니다!');
           } else {
             // 스케줄링 실패 시에도 상태는 업데이트 (사용자 경험 개선)
             setIsEnabled(true);
@@ -94,7 +94,7 @@ export default function NotificationSettings({ onClose }) {
         // 알림 비활성화
         Alert.alert(
           '알림 해제',
-          '매일 오후 10시 알림을 해제하시겠습니까?',
+          '매일 현지 시간 오후 10시 알림을 해제하시겠습니까?',
           [
             { text: '취소', style: 'cancel' },
             {
@@ -124,6 +124,32 @@ export default function NotificationSettings({ onClose }) {
     }
   };
 
+  const sendTestNotificationIn1Minute = async () => {
+    try {
+      const success = await NotificationService.sendTestNotificationIn1Minute();
+      if (success) {
+        Alert.alert('테스트 알림', '1분 후에 테스트 알림이 발송됩니다!');
+      } else {
+        Alert.alert('오류', '1분 후 테스트 알림 스케줄링에 실패했습니다.');
+      }
+    } catch (error) {
+      Alert.alert('오류', '테스트 알림 스케줄링에 실패했습니다.');
+    }
+  };
+
+  const sendTestNotificationIn5Minutes = async () => {
+    try {
+      const success = await NotificationService.sendTestNotificationIn5Minutes();
+      if (success) {
+        Alert.alert('테스트 알림', '5분 후에 테스트 알림이 발송됩니다!');
+      } else {
+        Alert.alert('오류', '5분 후 테스트 알림 스케줄링에 실패했습니다.');
+      }
+    } catch (error) {
+      Alert.alert('오류', '테스트 알림 스케줄링에 실패했습니다.');
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={styles.container}>
@@ -149,7 +175,7 @@ export default function NotificationSettings({ onClose }) {
         <View style={styles.settingInfo}>
           <Text style={styles.settingTitle}>매일 오후 10시 알림</Text>
           <Text style={styles.settingDescription}>
-            '오늘의 내역을 입력해보세요' 메시지
+            현지 시간 기준으로 '오늘의 내역을 입력해보세요' 메시지
           </Text>
         </View>
         <Switch
@@ -184,19 +210,39 @@ export default function NotificationSettings({ onClose }) {
       )}
 
       {hasPermission && isEnabled && (
-        <TouchableOpacity
-          style={styles.testButton}
-          onPress={sendTestNotification}
-        >
-          <Ionicons name="play" size={16} color="white" />
-          <Text style={styles.testButtonText}>테스트 알림 보내기</Text>
-        </TouchableOpacity>
+        <View style={styles.testSection}>
+          <Text style={styles.testSectionTitle}>테스트 알림</Text>
+          
+          <TouchableOpacity
+            style={styles.testButton}
+            onPress={sendTestNotification}
+          >
+            <Ionicons name="flash" size={16} color="white" />
+            <Text style={styles.testButtonText}>즉시 테스트 알림</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.testButton, styles.testButtonSecondary]}
+            onPress={sendTestNotificationIn1Minute}
+          >
+            <Ionicons name="time" size={16} color={colors.primary} />
+            <Text style={[styles.testButtonText, styles.testButtonTextSecondary]}>1분 후 테스트</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.testButton, styles.testButtonSecondary]}
+            onPress={sendTestNotificationIn5Minutes}
+          >
+            <Ionicons name="time" size={16} color={colors.primary} />
+            <Text style={[styles.testButtonText, styles.testButtonTextSecondary]}>5분 후 테스트</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       <View style={styles.infoSection}>
         <Text style={styles.infoTitle}>알림 정보</Text>
         <Text style={styles.infoText}>
-          • 매일 오후 10시에 자동으로 알림이 발송됩니다
+          • 매일 현지 시간 오후 10시에 자동으로 알림이 발송됩니다
         </Text>
         <Text style={styles.infoText}>
           • 알림을 탭하면 앱이 열립니다
@@ -287,6 +333,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  testSection: {
+    marginTop: 20,
+  },
+  testSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 15,
+  },
   testButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -295,13 +350,21 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
-    marginTop: 20,
+    marginBottom: 10,
+  },
+  testButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.primary,
   },
   testButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '500',
     marginLeft: 8,
+  },
+  testButtonTextSecondary: {
+    color: colors.primary,
   },
   infoSection: {
     marginTop: 30,

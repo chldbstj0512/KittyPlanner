@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "",
-    "slug": "KittyPlanner",
+    "name": "ModuPlanner",
+    "slug": "ModuPlanner",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -17,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.KittyPlanner",
+      "bundleIdentifier": "com.anonymous.ModuPlanner",
       "deploymentTarget": "17.0"
     },
     "android": {
@@ -31,7 +31,7 @@
         "resizeMode": "contain",
         "backgroundColor": "#FFF5C8"
       },
-      "package": "com.anonymous.KittyPlanner"
+      "package": "com.anonymous.ModuPlanner"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -45,6 +45,14 @@
           "icon": "./assets/notification-icon.png",
           "color": "#FFF5C8",
           "sounds": ["./assets/notification-sound.wav"]
+        }
+      ],
+      [
+        "expo-ads-admob",
+        {
+          "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX",
+          "iosAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX",
+          "userTrackingPermission": "This identifier will be used to deliver personalized ads to you."
         }
       ]
     ]

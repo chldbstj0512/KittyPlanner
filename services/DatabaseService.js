@@ -18,6 +18,7 @@ function getMonthDateRange(year, month) {
   return { start, end, lastDay };
 }
 
+
 export const DatabaseService = {
   initDatabase: async () => {
     try {
@@ -44,12 +45,21 @@ export const DatabaseService = {
   },
 
   addTransaction: async (t) => {
+    console.log('🗄️ [DatabaseService] addTransaction 시작:', t);
+    
     const db = await getDb();
+    console.log('✅ [DatabaseService] DB 연결 완료');
+    
     const result = await db.runAsync(
       'INSERT INTO transactions (date, amount, type, category, memo) VALUES (?, ?, ?, ?, ?)',
       [t.date, t.amount, t.type, t.category, t.memo]
     );
-    return result.lastInsertRowId;
+    
+    const localId = result.lastInsertRowId;
+    console.log('💾 [DatabaseService] 로컬 DB에 저장 완료, ID:', localId);
+    
+    console.log('🏁 [DatabaseService] addTransaction 완료, 반환 ID:', localId);
+    return localId;
   },
 
   getTransactionsByMonth: async (year, month) => {
@@ -73,7 +83,7 @@ export const DatabaseService = {
 
   updateTransaction: async (id, t) => {
     const db = await getDb();
-    return db.runAsync(
+    await db.runAsync(
       'UPDATE transactions SET date = ?, amount = ?, type = ?, category = ?, memo = ? WHERE id = ?',
       [t.date, t.amount, t.type, t.category, t.memo, id]
     );
@@ -81,7 +91,7 @@ export const DatabaseService = {
 
   deleteTransaction: async (id) => {
     const db = await getDb();
-    return db.runAsync('DELETE FROM transactions WHERE id = ?', [id]);
+    await db.runAsync('DELETE FROM transactions WHERE id = ?', [id]);
   },
 
   clearAllTransactions: async () => {
@@ -109,12 +119,11 @@ export const DatabaseService = {
     const incomeRow = validRows.find(r => r.type === 'income');
     const expenseRows = validRows.filter(r => r.type === 'expense');
     
-
-    
     return {
       totalIncome: incomeRow ? (incomeRow.totalIncome || 0) : 0,
       totalExpenses: expenseRows.reduce((sum, row) => sum + (row.categoryTotal || 0), 0),
       categories: expenseRows,
     };
   },
+
 };

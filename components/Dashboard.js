@@ -214,20 +214,29 @@ export default function Dashboard({ navigation }) {
   };
 
   const saveTransaction = async () => {
-    if (saving) return;
-    if (!transactionForm.amount || !selectedDate) return;
+    console.log('🚀 [Dashboard] saveTransaction 시작');
+    if (saving) {
+      console.log('❌ [Dashboard] 이미 저장 중이므로 중단');
+      return;
+    }
+    if (!transactionForm.amount || !selectedDate) {
+      console.log('❌ [Dashboard] 필수 필드 누락:', { amount: transactionForm.amount, selectedDate });
+      return;
+    }
 
     // 선택된 날짜가 현재 월과 맞는지 검증
     const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
     const selectedYearMonth = selectedDate.slice(0, 7);
     
     if (selectedYearMonth !== currentYearMonth) {
+      console.log('❌ [Dashboard] 날짜 검증 실패:', { currentYearMonth, selectedYearMonth });
       Alert.alert('오류', '선택된 날짜가 현재 월과 맞지 않습니다. 날짜를 다시 선택해주세요.');
       setSelectedDate(null);
       return;
     }
 
     try {
+      console.log('✅ [Dashboard] 거래 저장 시작');
       setSaving(true);
       // 저장 시점에 자동 분류 다시 실행
       const autoSuggestedCategory = suggestCategory((transactionForm.memo || '').trim());
@@ -240,13 +249,8 @@ export default function Dashboard({ navigation }) {
         memo: (transactionForm.memo || '').trim(),
       };
       
-      console.log('=== TRANSACTION SAVED ===');
-      console.log('Transaction payload:', payload);
-      console.log('Auto-suggested category:', autoSuggestedCategory);
-      console.log('Final category:', payload.category);
-      console.log('========================');
-      
-
+      console.log('📦 [Dashboard] 거래 데이터 준비 완료:', payload);
+      console.log('🤖 [Dashboard] 자동 분류 결과:', autoSuggestedCategory);
       
       // 학습 기능: 사용자가 자동 제안과 다른 카테고리를 선택했을 때
       if (payload.memo && payload.memo.length >= 3) {
@@ -254,32 +258,40 @@ export default function Dashboard({ navigation }) {
         if (suggestedCategory !== payload.category) {
           // 사용자의 선택을 학습 데이터로 저장
           // 실제 앱에서는 이 데이터를 데이터베이스나 AsyncStorage에 저장
-          console.log(`Learning: "${payload.memo}" -> "${payload.category}" (suggested: "${suggestedCategory}")`);
+          console.log(`📚 [Dashboard] 학습: "${payload.memo}" -> "${payload.category}" (suggested: "${suggestedCategory}")`);
           
           // 간단한 학습: 메모의 핵심 단어를 선택된 카테고리에 추가
           const words = payload.memo.toLowerCase().split(/\s+/).filter(word => word.length >= 2);
           if (words.length > 0) {
             // 가장 긴 단어를 선택 (보통 더 의미있는 키워드)
             const longestWord = words.reduce((a, b) => a.length > b.length ? a : b);
-            console.log(`Adding learned keyword: "${longestWord}" to category "${payload.category}"`);
+            console.log(`🎯 [Dashboard] 학습 키워드 추가: "${longestWord}" to category "${payload.category}"`);
           }
         }
       }
       
       if (isEditMode && editingTransactionId) {
+        console.log('✏️ [Dashboard] 수정 모드 - DatabaseService.updateTransaction 호출');
         // 수정 모드일 때는 업데이트
         await DatabaseService.updateTransaction(editingTransactionId, payload);
       } else {
+        console.log('➕ [Dashboard] 새 거래 추가 - DatabaseService.addTransaction 호출');
         // 새 거래 추가
         await DatabaseService.addTransaction(payload);
       }
+      console.log('✅ [Dashboard] DatabaseService 호출 완료');
+      
       await loadMonthlyData(); // refresh month cache & sums
+      console.log('✅ [Dashboard] 월간 데이터 새로고침 완료');
+      
       closeModal(); // close and reset form (single entry)
+      console.log('✅ [Dashboard] 모달 닫기 완료');
     } catch (error) {
-      console.error('Error adding transaction:', error);
+      console.error('❌ [Dashboard] 거래 저장 중 오류:', error);
       Alert.alert('Error', 'Failed to add transaction');
     } finally {
       setSaving(false);
+      console.log('🏁 [Dashboard] saveTransaction 완료');
     }
   };
 
@@ -1086,6 +1098,8 @@ const styles = StyleSheet.create({
   },
   txAmountContainer: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
+    alignSelf: 'center',
   },
   txAmount: { 
     fontSize: 15, 
@@ -1123,8 +1137,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
     padding: 20,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    paddingTop: 80,
   },
   modalContent: {
     width: '100%',

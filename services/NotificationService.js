@@ -31,12 +31,12 @@ export const NotificationService = {
       
       return true;
     } else {
-      console.log('시뮬레이터에서는 푸시 알림을 사용할 수 없습니다.');
+      console.log('Push notifications not available in simulator.');
       return false;
     }
   },
 
-  // 오후 10시 알림 스케줄링
+  // 오후 10시 알림 스케줄링 (현지 시간 기준)
   scheduleDailyReminder: async () => {
     try {
       // 기존 알림 취소
@@ -45,11 +45,11 @@ export const NotificationService = {
       // 권한 확인
       const { status } = await Notifications.getPermissionsAsync();
       if (status !== 'granted') {
-        console.log('알림 권한이 없어서 스케줄링을 건너뜁니다.');
+        console.log('Notification permission not granted, skipping scheduling.');
         return false;
       }
       
-      // 오후 10시 (22:00) 알림 설정
+      // 현지 시간 기준 오후 10시 (22:00) 알림 설정
       const trigger = {
         hour: 22,
         minute: 0,
@@ -66,7 +66,7 @@ export const NotificationService = {
         trigger,
       });
       
-      console.log('오후 10시 알림이 설정되었습니다.');
+      console.log('Daily reminder scheduled for 10 PM local time.');
       return true;
     } catch (error) {
       console.error('알림 설정 중 오류:', error);
@@ -119,6 +119,50 @@ export const NotificationService = {
       console.log('테스트 알림이 발송되었습니다.');
     } catch (error) {
       console.error('테스트 알림 발송 중 오류:', error);
+    }
+  },
+
+  // 1분 후 테스트 알림 (실제 스케줄링 테스트)
+  sendTestNotificationIn1Minute: async () => {
+    try {
+      const now = new Date();
+      const triggerDate = new Date(now.getTime() + 60 * 1000); // 1분 후
+      
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🐱 KittyPlanner',
+          body: '1분 후 테스트 알림입니다!',
+          sound: 'default',
+        },
+        trigger: triggerDate,
+      });
+      console.log('1분 후 테스트 알림이 스케줄되었습니다.');
+      return true;
+    } catch (error) {
+      console.error('1분 후 테스트 알림 스케줄링 중 오류:', error);
+      return false;
+    }
+  },
+
+  // 5분 후 테스트 알림 (실제 스케줄링 테스트)
+  sendTestNotificationIn5Minutes: async () => {
+    try {
+      const now = new Date();
+      const triggerDate = new Date(now.getTime() + 5 * 60 * 1000); // 5분 후
+      
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🐱 KittyPlanner',
+          body: '5분 후 테스트 알림입니다!',
+          sound: 'default',
+        },
+        trigger: triggerDate,
+      });
+      console.log('5분 후 테스트 알림이 스케줄되었습니다.');
+      return true;
+    } catch (error) {
+      console.error('5분 후 테스트 알림 스케줄링 중 오류:', error);
+      return false;
     }
   },
 };
